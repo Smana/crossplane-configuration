@@ -1,0 +1,5 @@
+build/
+*.xpkg
+.venv/
+__pycache__/
+.superpowers/
