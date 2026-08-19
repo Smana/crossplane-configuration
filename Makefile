@@ -1,4 +1,4 @@
-.PHONY: generate test render build push check clean
+.PHONY: generate test schema render build push check clean
 
 APIS := app sqlinstance kvstore inferenceservice epi
 PKGS := core aws
@@ -13,6 +13,9 @@ test:
 	  echo "==> $$a"; \
 	  (cd apis/$$a/kcl && kcl fmt --check . && kcl test . -Y settings-example.yaml) || exit 1; \
 	done
+
+schema:
+	./scripts/validate-schemas.sh
 
 render:
 	python3 scripts/render_check.py
@@ -37,6 +40,7 @@ check: generate
 	@git diff --exit-code -- apis/ \
 	  || { echo "ERROR: composition.yaml is stale. Run 'make generate' and commit."; exit 1; }
 	$(MAKE) test
+	$(MAKE) schema
 	$(MAKE) render
 
 clean:
