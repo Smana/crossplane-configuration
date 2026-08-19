@@ -39,12 +39,12 @@ jobs:
       # failed render equivalence or shipped a malformed XRD — the artifact is
       # public and immutable the moment it lands, so this fails closed.
       - name: Verify before publishing
-        run: make check
+        run: task check
 
       - name: Build packages and CRDs
         run: |
-          make build VERSION=${{ steps.v.outputs.version }}
-          make crds
+          task build VERSION=${{ steps.v.outputs.version }}
+          task crds
 
       - name: Packages are self-contained
         run: ./scripts/check_packages.sh
@@ -56,7 +56,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          make push VERSION=${{ steps.v.outputs.version }}
+          task push VERSION=${{ steps.v.outputs.version }}
 
       - name: Create the release with the schema asset
         env:

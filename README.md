@@ -54,7 +54,7 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-`.github/workflows/release.yaml` then runs `make check` — the same gates as CI,
+`.github/workflows/release.yaml` then runs `task check` — the same gates as CI,
 re-run here because a tag can be pushed at any commit, including one that never
 passed — before building, pushing both packages to `ghcr.io/smana`, and creating
 the GitHub release with `xrd-crds.yaml` attached.
@@ -67,9 +67,9 @@ Configuration and the schemas its claims are validated against.
 
 ```bash
 mise install
-make check   # generate-sync + kcl fmt/test + render against golden fixtures
-make build   # produce both .xpkg files
+task check   # generate-sync + kcl fmt/test + render against golden fixtures
+task build   # produce both .xpkg files
 ```
 
 `apis/<api>/kcl/main.k` is the source of truth. `apis/<api>/composition.yaml` is **generated** by
-`make generate` — edit the KCL, never the inlined copy.
+`task generate` — edit the KCL, never the inlined copy.
