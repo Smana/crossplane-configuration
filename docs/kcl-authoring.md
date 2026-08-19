@@ -1,11 +1,10 @@
-<!-- SYNC-BLOCK-START: kcl-authoring
-     Mirrored into Smana/cloud-native-ref as docs/crossplane-kcl-authoring.md for the
-     platform docs site. That copy is checked against this file, at the tag pinned in
-     its configuration-packages.yaml. Edit here; the mirror follows on the next pin bump. -->
+<!-- Mirrored into Smana/cloud-native-ref as docs/crossplane-kcl-authoring.md for the platform
+     docs site. This file is authoritative; edit here. Keep the prose repo-neutral — it is read
+     from both repos. -->
 
 # Authoring KCL compositions
 
-The Compositions in this repo are generated: `apis/<api>/kcl/main.k` is the source of truth and
+The Compositions in `crossplane-configuration` are generated: `apis/<api>/kcl/main.k` is the source of truth and
 `make generate` inlines it into `apis/<api>/composition.yaml` as a block scalar. **Never edit the
 inlined copy** — CI regenerates and fails if the two disagree.
 
@@ -128,7 +127,5 @@ workflow, never a script.
 So a composition that drops `readOnlyRootFilesystem` or `seccompProfile` from its pod spec passes
 every gate in both repos. Review pod specs by hand until this is closed.
 
-The fix is cheap and belongs here: `make render` already writes rendered output for all 12 examples,
-which is exactly the input a Polaris audit wants.
-
-<!-- SYNC-BLOCK-END: kcl-authoring -->
+The fix is cheap and belongs in `crossplane-configuration`: `make render` already writes rendered
+output for all 12 examples, which is exactly the input a Polaris audit wants.
