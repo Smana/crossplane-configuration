@@ -11,7 +11,6 @@ permissions:
 # Every gate that exists today runs here. Steps are added as the tasks that
 # introduce them land, rather than written ahead of the targets they call:
 #
-#   Task 4/5  ->  make render   (golden fixtures + render equivalence)
 #   Task 6    ->  make build    (assemble + crossplane xpkg build)
 #   Task 7    ->  make crds     (XRD-to-CRD release asset)
 #   Task 8    ->  scripts/check_function_pins.py
@@ -54,3 +53,9 @@ jobs:
 
       - name: Example claims validate against the shipped XRDs
         run: make schema
+
+      # The extraction's central premise: inlining the KCL must not change what
+      # the Composition produces. Docker is present on ubuntu-latest, so
+      # crossplane render can run the functions.
+      - name: Render equivalence against golden fixtures
+        run: make render
