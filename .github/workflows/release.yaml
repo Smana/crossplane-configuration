@@ -1,0 +1,68 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write   # create the release and upload assets
+  packages: write   # push to ghcr.io
+
+jobs:
+  release:
+    name: Publish packages and schema asset
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: jdx/mise-action@v3
+
+      - name: Install the flux-schema plugin
+        run: flux plugin install schema@0.11.0
+
+      - name: Install Python dependencies
+        run: python3 -m pip install --quiet --disable-pip-version-check pyyaml pytest
+
+      # The OCI tag is the git tag, verbatim. crossplane requires a package's OCI
+      # tag to be a semantic version and its own examples are v-prefixed
+      # (function-example:v1.0.0), and packages/aws/crossplane.yaml declares
+      # `dependsOn ... version: ">=v0.1.0"`. Stripping the v here would publish
+      # :0.1.0 against a v-prefixed constraint and leave three spellings of one
+      # release — git tag, OCI tag, dependency constraint — to keep in step by
+      # hand. Identical is cheaper than convertible.
+      - name: Derive the version from the tag
+        id: v
+        run: echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      # A tag can be pushed at any commit, including one that never passed CI.
+      # Re-running the gates here means a published package cannot be one that
+      # failed render equivalence or shipped a malformed XRD — the artifact is
+      # public and immutable the moment it lands, so this fails closed.
+      - name: Verify before publishing
+        run: make check
+
+      - name: Build packages and CRDs
+        run: |
+          make build VERSION=${{ steps.v.outputs.version }}
+          make crds
+
+      - name: Packages are self-contained
+        run: ./scripts/check_packages.sh
+
+      # crossplane xpkg push reuses the Docker credential store; the CLI has no
+      # `login` subcommand of its own (verified against v2.1.3).
+      - name: Push both packages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          make push VERSION=${{ steps.v.outputs.version }}
+
+      - name: Create the release with the schema asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            build/xrd-crds.yaml

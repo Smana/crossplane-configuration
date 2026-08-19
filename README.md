@@ -37,10 +37,31 @@ kind: Configuration
 metadata:
   name: crossplane-configuration-aws
 spec:
-  package: ghcr.io/smana/crossplane-configuration-aws:0.1.0
+  package: ghcr.io/smana/crossplane-configuration-aws:v0.1.0
 ```
 
 `-aws` pulls `-core` through its `dependsOn`.
+
+The OCI tag is the git tag verbatim, `v`-prefixed. One spelling for the git tag,
+the published package, and the `dependsOn` constraint.
+
+## Releasing
+
+Releases are cut by pushing a tag; nothing publishes from `main`.
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+`.github/workflows/release.yaml` then runs `make check` — the same gates as CI,
+re-run here because a tag can be pushed at any commit, including one that never
+passed — before building, pushing both packages to `ghcr.io/smana`, and creating
+the GitHub release with `xrd-crds.yaml` attached.
+
+That asset is what `cloud-native-ref` consumes: its `gen-catalog.sh` reads it via
+`XRD_CRDS_FILE`, so a single version string drives both the installed
+Configuration and the schemas its claims are validated against.
 
 ## Development
 
