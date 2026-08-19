@@ -1,0 +1,147 @@
+---
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: KVStore
+metadata:
+  name: xplane-mycache
+  namespace: demo
+status:
+  conditions:
+  - lastTransitionTime: "2024-01-01T00:00:00Z"
+    reason: Available
+    status: "True"
+    type: Ready
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-mycache-kvstore
+  labels:
+    crossplane.io/composite: xplane-mycache
+  name: xplane-mycache-valkey
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: KVStore
+    name: xplane-mycache
+    uid: ""
+spec:
+  chart:
+    spec:
+      chart: valkey
+      sourceRef:
+        kind: HelmRepository
+        name: valkey
+        namespace: flux-system
+      version: 0.10.0
+  driftDetection:
+    mode: enabled
+  install:
+    remediation:
+      retries: 3
+  interval: 10m0s
+  releaseName: xplane-mycache-valkey
+  values:
+    auth:
+      aclUsers:
+        default:
+          passwordKey: password
+          permissions: ~* &* +@all
+      enabled: true
+      usersExistingSecret: mycache-valkey-password
+    fullnameOverride: xplane-mycache-valkey
+    metrics:
+      enabled: true
+      exporter:
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsGroup: 1000
+          runAsNonRoot: true
+          runAsUser: 1000
+      serviceMonitor:
+        enabled: true
+    readinessProbe:
+      enabled: true
+    replica:
+      enabled: true
+      persistence:
+        size: 8Gi
+      replicas: 2
+    resources:
+      limits:
+        cpu: 750m
+        memory: 768Mi
+      requests:
+        cpu: 500m
+        memory: 512Mi
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-mycache-netpol
+  labels:
+    crossplane.io/composite: xplane-mycache
+  name: xplane-mycache-valkey
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: KVStore
+    name: xplane-mycache
+    uid: ""
+spec:
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: kube-system
+        k8s-app: kube-dns
+    toPorts:
+    - ports:
+      - port: "53"
+        protocol: UDP
+      - port: "53"
+        protocol: TCP
+      rules:
+        dns:
+        - matchPattern: '*'
+  - toEndpoints:
+    - matchLabels:
+        app.kubernetes.io/instance: xplane-mycache-valkey
+        app.kubernetes.io/name: valkey
+    toPorts:
+    - ports:
+      - port: "6379"
+        protocol: TCP
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/instance: xplane-mycache-valkey
+      app.kubernetes.io/name: valkey
+  ingress:
+  - fromEndpoints:
+    - {}
+    toPorts:
+    - ports:
+      - port: "6379"
+        protocol: TCP
+  - fromEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: observability
+    toPorts:
+    - ports:
+      - port: "9121"
+        protocol: TCP

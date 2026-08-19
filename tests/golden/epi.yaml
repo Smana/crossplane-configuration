@@ -1,0 +1,177 @@
+---
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: EPI
+metadata:
+  name: xplane-foobar
+  namespace: security
+status:
+  conditions:
+  - lastTransitionTime: "2024-01-01T00:00:00Z"
+    message: 'Unready resources: xplane-foobar-iam-policy, xplane-foobar-iam-role,
+      xplane-foobar-iam-role-policy-attachment, and 2 more'
+    reason: Creating
+    status: "False"
+    type: Ready
+---
+apiVersion: iam.aws.m.upbound.io/v1beta1
+kind: Policy
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-foobar-iam-policy
+  labels:
+    crossplane.io/composite: xplane-foobar
+  name: xplane-foobar-iam-policy
+  namespace: security
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: EPI
+    name: xplane-foobar
+    uid: ""
+spec:
+  forProvider:
+    policy: |-
+      {
+      "Version": "2012-10-17",
+      "Statement": [
+          {
+          "Effect": "Allow",
+          "Action": "route53:GetChange",
+          "Resource": "arn:aws:route53:::change/*"
+          },
+          {
+          "Effect": "Allow",
+          "Action": [
+              "route53:ChangeResourceRecordSets",
+              "route53:ListResourceRecordSets"
+          ],
+          "Resource": "arn:aws:route53:::hostedzone/*"
+          },
+          {
+          "Effect": "Allow",
+          "Action": "route53:ListHostedZonesByName",
+          "Resource": "*"
+          }
+      ]
+      }
+  providerConfigRef:
+    kind: ClusterProviderConfig
+    name: default
+---
+apiVersion: iam.aws.m.upbound.io/v1beta1
+kind: Role
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-foobar-iam-role
+  labels:
+    crossplane.io/composite: xplane-foobar
+  name: xplane-foobar-iam-role
+  namespace: security
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: EPI
+    name: xplane-foobar
+    uid: ""
+spec:
+  forProvider:
+    assumeRolePolicy: |-
+      {
+      "Version": "2012-10-17",
+      "Statement": [
+          {
+              "Effect": "Allow",
+              "Principal": {
+                  "Service": "pods.eks.amazonaws.com"
+              },
+              "Action": [
+                  "sts:AssumeRole",
+                  "sts:TagSession"
+              ]
+          }
+      ]
+      }
+  providerConfigRef:
+    kind: ClusterProviderConfig
+    name: default
+---
+apiVersion: iam.aws.m.upbound.io/v1beta1
+kind: RolePolicyAttachment
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-foobar-iam-role-policy-attachment
+  labels:
+    crossplane.io/composite: xplane-foobar
+  name: xplane-foobar-iam-role-policy-attachment
+  namespace: security
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: EPI
+    name: xplane-foobar
+    uid: ""
+spec:
+  forProvider:
+    policyArnSelector:
+      matchControllerRef: true
+    roleSelector:
+      matchControllerRef: true
+  providerConfigRef:
+    kind: ClusterProviderConfig
+    name: default
+---
+apiVersion: eks.aws.m.upbound.io/v1beta1
+kind: PodIdentityAssociation
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-foobar-pod-identity-association
+  labels:
+    crossplane.io/composite: xplane-foobar
+  name: xplane-foobar-pod-identity-association
+  namespace: security
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: EPI
+    name: xplane-foobar
+    uid: ""
+spec:
+  forProvider:
+    clusterName: mycluster-0
+    namespace: security
+    region: eu-west-3
+    roleArnSelector:
+      matchControllerRef: true
+    serviceAccount: foobar
+  providerConfigRef:
+    kind: ClusterProviderConfig
+    name: default
+---
+apiVersion: iam.aws.m.upbound.io/v1beta1
+kind: RolePolicyAttachment
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-foobar-r53admin-iam-role-policy-attachment
+  labels:
+    crossplane.io/composite: xplane-foobar
+  name: xplane-foobar-r53admin-iam-role-policy-attachment
+  namespace: security
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: EPI
+    name: xplane-foobar
+    uid: ""
+spec:
+  forProvider:
+    policyArn: arn:aws:iam::aws:policy/AmazonRoute53FullAccess
+    roleSelector:
+      matchControllerRef: true
+  providerConfigRef:
+    kind: ClusterProviderConfig
+    name: default

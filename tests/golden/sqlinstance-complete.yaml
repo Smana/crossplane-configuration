@@ -1,0 +1,691 @@
+---
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: SQLInstance
+metadata:
+  name: production-database
+  namespace: production
+status:
+  conditions:
+  - lastTransitionTime: "2024-01-01T00:00:00Z"
+    message: 'Unready resources: production-database-analytics-atlas-migration, production-database-analytics-atlas-migrations-configmap,
+      production-database-analytics-atlas-migrations-repo, and 13 more'
+    reason: Creating
+    status: "False"
+    type: Ready
+---
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasMigration
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: production-database-analytics-atlas-migration
+  labels:
+    crossplane.io/composite: production-database
+  name: production-database-analytics-atlas-migration
+  namespace: production
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: SQLInstance
+    name: production-database
+    uid: ""
+spec:
+  dir:
+    configMapRef:
+      name: atlas-db-migrations
+  urlFrom:
+    secretKeyRef:
+      key: uri
+      name: production-database-cnpg-analytics
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: production-database-analytics-atlas-migrations-configmap
+  labels:
+    crossplane.io/composite: production-database
+  name: production-database-analytics-atlas-migrations-configmap
+  namespace: production
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: SQLInstance
+    name: production-database
+    uid: ""
+spec:
+  interval: 10m
+  path: db/migrations
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: production-database-analytics-atlas-migrations-repo
+  targetNamespace: production
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: production-database-analytics-atlas-migrations-repo
+  labels:
+    crossplane.io/composite: production-database
+  name: production-database-analytics-atlas-migrations-repo
+  namespace: production
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: SQLInstance
+    name: production-database
+    uid: ""
+spec:
+  interval: 10m
+  ref:
+    branch: main
+  url: https://github.com/example/myapp.git
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: production-database-cnpg-analytics
+  labels:
+    crossplane.io/composite: production-database
+  name: production-database-cnpg-analytics
+  namespace: production
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: SQLInstance
+    name: production-database
+    uid: ""
+spec:
+  cluster:
+    name: production-database-cnpg-cluster
+  name: analytics
+  owner: analytics-user
+---
+apiVersion: v1
+data:
+  init.sql: |-
+    -- Performance monitoring
+    CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+
+    -- Full-text search enhancements
+    CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+    -- Cryptographic functions
+    CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+    -- UUID generation
+    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+kind: ConfigMap
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: production-database-cnpg-bootsrapsql
+  labels:
+    crossplane.io/composite: production-database
+  name: production-database-cnpg-bootsrapsql
+  namespace: production
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: SQLInstance
+    name: production-database
+    uid: ""
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: production-database-cnpg-cluster
+  labels:
+    crossplane.io/composite: production-database
+  name: production-database-cnpg-cluster
+  namespace: production
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: SQLInstance
+    name: production-database
+    uid: ""
+spec:
+  bootstrap:
+    initdb:
+      database: myapp
+      owner: myapp-user
+      postInitApplicationSQLRefs:
+        configMapRefs:
+        - key: init.sql
+          name: production-database-cnpg-bootsrapsql
+      secret:
+        name: production-database-cnpg-myapp
+  imageName: ghcr.io/cloudnative-pg/postgresql:18-system-trixie
+  instances: 3
+  managed:
+    roles:
+    - comment: Application database user
+      inRoles:
+      - pg_monitor
+      login: true
+      name: myapp-user
+      passwordSecret:
+        name: production-database-cnpg-myapp
+      superuser: false
+    - comment: Read-only user for analytics queries
+      inRoles:
+      - pg_read_all_data
+      login: true
+      name: analytics-user
+      passwordSecret:
+        name: production-database-cnpg-analytics
+      superuser: false
+  monitoring:
+    customQueriesConfigMap:
+    - key: queries
+      name: production-database-cnpg-monitoring
+    disableDefaultQueries: false
+    enablePodMonitor: true
+  plugins:
+  - isWALArchiver: true
+    name: barman-cloud.cloudnative-pg.io
+    parameters:
+      barmanObjectName: production-database-cnpg-objectstore
+  postgresql:
+    parameters:
+      auto_explain.log_analyze: "on"
+      auto_explain.log_buffers: "on"
+      auto_explain.log_format: json
+      auto_explain.log_min_duration: "1000"
+      auto_explain.log_nested_statements: "on"
+      auto_explain.log_timing: "off"
+      auto_explain.log_triggers: "on"
+      auto_explain.log_verbose: "on"
+      auto_explain.sample_rate: "0.2"
+      checkpoint_completion_target: "0.9"
+      compute_query_id: "on"
+      effective_cache_size: 2GB
+      effective_io_concurrency: "200"
+      log_connections: "on"
+      log_disconnections: "on"
+      log_line_prefix: '%m [%p] %u@%d '
+      log_min_duration_statement: "1000"
+      log_statement: none
+      maintenance_work_mem: 256MB
+      max_connections: "200"
+      pg_stat_statements.max: "10000"
+      pg_stat_statements.save: "on"
+      pg_stat_statements.track: all
+      pg_stat_statements.track_planning: "on"
+      pg_stat_statements.track_utility: "on"
+      random_page_cost: "1.1"
+      shared_buffers: 512MB
+      shared_preload_libraries: pg_stat_statements
+      track_activity_query_size: "2048"
+      track_io_timing: "on"
+      wal_buffers: 16MB
+      work_mem: 16MB
+    pg_hba:
+    - host all all 0.0.0.0/0 md5
+  primaryUpdateStrategy: unsupervised
+  resources:
+    limits:
+      cpu: "2"
+      memory: 3Gi
+    requests:
+      cpu: "1"
+      memory: 3Gi
+  storage:
+    size: 100Gi
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: production-database-cnpg-daily-backup
+  labels:
+    crossplane.io/composite: production-database
+  name: production-database-cnpg-daily-backup
+  namespace: production
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: SQLInstance
+    name: production-database
+    uid: ""
+spec:
+  backupOwnerReference: self
+  cluster:
+    name: production-database-cnpg-cluster
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+  schedule: 0 2 * * *
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: production-database-cnpg-externalsecret-analytics
+  labels:
+    crossplane.io/composite: production-database
+  name: production-database-cnpg-analytics
+  namespace: production
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: SQLInstance
+    name: production-database
+    uid: ""
+spec:
+  data:
+  - remoteRef:
+      key: cnpg/production-database/roles/analytics-user
+      property: username
+    secretKey: username
+  - remoteRef:
+      key: cnpg/production-database/roles/analytics-user
+      property: password
+    secretKey: password
+  refreshInterval: 30m
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: clustersecretstore
+  target:
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    name: production-database-cnpg-analytics
+    template:
+      data:
+        password: '{{ .password }}'
+        uri: postgresql://{{ .username | urlquery }}:{{ .password | urlquery }}@production-database-cnpg-cluster-rw.production.svc:5432/analytics
+        username: '{{ .username }}'
+      engineVersion: v2
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: production-database-cnpg-externalsecret-myapp
+  labels:
+    crossplane.io/composite: production-database
+  name: production-database-cnpg-myapp
+  namespace: production
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: SQLInstance
+    name: production-database
+    uid: ""
+spec:
+  data:
+  - remoteRef:
+      key: cnpg/production-database/roles/myapp-user
+      property: username
+    secretKey: username
+  - remoteRef:
+      key: cnpg/production-database/roles/myapp-user
+      property: password
+    secretKey: password
+  refreshInterval: 30m
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: clustersecretstore
+  target:
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    name: production-database-cnpg-myapp
+    template:
+      data:
+        password: '{{ .password }}'
+        uri: postgresql://{{ .username | urlquery }}:{{ .password | urlquery }}@production-database-cnpg-cluster-rw.production.svc:5432/myapp
+        username: '{{ .username }}'
+      engineVersion: v2
+---
+apiVersion: iam.aws.m.upbound.io/v1beta1
+kind: Policy
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: production-database-cnpg-iam-policy
+  labels:
+    crossplane.io/composite: production-database
+  name: production-database-cnpg-iam-policy
+  namespace: production
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: SQLInstance
+    name: production-database
+    uid: ""
+spec:
+  forProvider:
+    policy: |-
+      {
+          "Version": "2012-10-17",
+          "Statement": [
+              {
+                  "Effect": "Allow",
+                  "Action": [
+                      "s3:ListBucket"
+                  ],
+                  "Resource": "arn:aws:s3:::production-database-backups"
+              },
+              {
+                  "Effect": "Allow",
+                  "Action": [
+                      "s3:*"
+                  ],
+                  "Resource": "arn:aws:s3:::production-database-backups/*"
+              }
+          ]
+      }
+---
+apiVersion: iam.aws.m.upbound.io/v1beta1
+kind: Role
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: production-database-cnpg-iam-role
+  labels:
+    crossplane.io/composite: production-database
+  name: production-database-cnpg-iam-role
+  namespace: production
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: SQLInstance
+    name: production-database
+    uid: ""
+spec:
+  forProvider:
+    assumeRolePolicy: |-
+      {
+          "Version": "2012-10-17",
+          "Statement": [
+              {
+                  "Effect": "Allow",
+                  "Principal": {
+                      "Service": "pods.eks.amazonaws.com"
+                  },
+                  "Action": [
+                      "sts:AssumeRole",
+                      "sts:TagSession"
+                  ]
+              }
+          ]
+      }
+---
+apiVersion: iam.aws.m.upbound.io/v1beta1
+kind: RolePolicyAttachment
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: production-database-cnpg-iam-role-policy-attachment
+  labels:
+    crossplane.io/composite: production-database
+  name: production-database-cnpg-iam-role-policy-attachment
+  namespace: production
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: SQLInstance
+    name: production-database
+    uid: ""
+spec:
+  forProvider:
+    policyArnSelector:
+      matchControllerRef: true
+    roleSelector:
+      matchControllerRef: true
+---
+apiVersion: v1
+data:
+  queries: |-
+    pg_stat_statements:
+      query: |
+        SELECT
+          d.datname as database,
+          r.rolname as user,
+          s.queryid::text as query_id,
+          LEFT(s.query, 200) as query,
+          s.calls,
+          s.total_exec_time,
+          s.mean_exec_time,
+          s.min_exec_time,
+          s.max_exec_time,
+          s.stddev_exec_time,
+          s.rows,
+          s.shared_blks_hit,
+          s.shared_blks_read,
+          s.local_blks_read,
+          s.temp_blks_read,
+          s.shared_blk_read_time as blk_read_time,
+          s.shared_blk_write_time as blk_write_time
+        FROM pg_stat_statements s
+        JOIN pg_database d ON s.dbid = d.oid
+        JOIN pg_roles r ON s.userid = r.oid
+        WHERE d.datname NOT IN ('template0', 'template1', 'postgres')
+        AND s.queryid IS NOT NULL
+        ORDER BY s.mean_exec_time DESC
+        LIMIT 100
+      metrics:
+        - database:
+            usage: "LABEL"
+            description: "Database name"
+        - user:
+            usage: "LABEL"
+            description: "User name"
+        - query_id:
+            usage: "LABEL"
+            description: "Query identifier (compute_query_id) for correlation with auto_explain"
+        - query:
+            usage: "LABEL"
+            description: "Query text (truncated)"
+        - calls:
+            usage: "COUNTER"
+            description: "Number of times executed"
+        - total_exec_time:
+            usage: "COUNTER"
+            description: "Total execution time in milliseconds"
+        - mean_exec_time:
+            usage: "GAUGE"
+            description: "Mean execution time in milliseconds"
+        - min_exec_time:
+            usage: "GAUGE"
+            description: "Minimum execution time in milliseconds"
+        - max_exec_time:
+            usage: "GAUGE"
+            description: "Maximum execution time in milliseconds"
+        - stddev_exec_time:
+            usage: "GAUGE"
+            description: "Standard deviation of execution time"
+        - rows:
+            usage: "COUNTER"
+            description: "Total rows retrieved or affected"
+        - shared_blks_hit:
+            usage: "COUNTER"
+            description: "Shared blocks cache hits"
+        - shared_blks_read:
+            usage: "COUNTER"
+            description: "Shared blocks read from disk"
+        - local_blks_read:
+            usage: "COUNTER"
+            description: "Local blocks read from disk"
+        - temp_blks_read:
+            usage: "COUNTER"
+            description: "Temp blocks read"
+        - blk_read_time:
+            usage: "COUNTER"
+            description: "Time reading blocks (ms)"
+        - blk_write_time:
+            usage: "COUNTER"
+            description: "Time writing blocks (ms)"
+kind: ConfigMap
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: production-database-cnpg-monitoring-configmap
+  labels:
+    crossplane.io/composite: production-database
+  name: production-database-cnpg-monitoring
+  namespace: production
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: SQLInstance
+    name: production-database
+    uid: ""
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: production-database-cnpg-myapp
+  labels:
+    crossplane.io/composite: production-database
+  name: production-database-cnpg-myapp
+  namespace: production
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: SQLInstance
+    name: production-database
+    uid: ""
+spec:
+  cluster:
+    name: production-database-cnpg-cluster
+  name: myapp
+  owner: myapp-user
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: production-database-cnpg-objectstore
+  labels:
+    crossplane.io/composite: production-database
+  name: production-database-cnpg-objectstore
+  namespace: production
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: SQLInstance
+    name: production-database
+    uid: ""
+spec:
+  configuration:
+    data:
+      compression: bzip2
+    destinationPath: s3://production-database-backups
+    s3Credentials:
+      inheritFromIAMRole: true
+    wal:
+      compression: bzip2
+  retentionPolicy: 30d
+---
+apiVersion: eks.aws.m.upbound.io/v1beta1
+kind: PodIdentityAssociation
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: production-database-cnpg-pod-identity-association
+  labels:
+    crossplane.io/composite: production-database
+  name: production-database-cnpg-pod-identity-association
+  namespace: production
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: SQLInstance
+    name: production-database
+    uid: ""
+spec:
+  forProvider:
+    clusterName: mycluster-0
+    namespace: production
+    region: eu-west-3
+    roleArnSelector:
+      matchControllerRef: true
+    serviceAccount: production-database-cnpg-cluster
+---
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasMigration
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: production-database-myapp-atlas-migration
+  labels:
+    crossplane.io/composite: production-database
+  name: production-database-myapp-atlas-migration
+  namespace: production
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: SQLInstance
+    name: production-database
+    uid: ""
+spec:
+  dir:
+    configMapRef:
+      name: atlas-db-migrations
+  urlFrom:
+    secretKeyRef:
+      key: uri
+      name: production-database-cnpg-myapp
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: production-database-myapp-atlas-migrations-configmap
+  labels:
+    crossplane.io/composite: production-database
+  name: production-database-myapp-atlas-migrations-configmap
+  namespace: production
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: SQLInstance
+    name: production-database
+    uid: ""
+spec:
+  interval: 10m
+  path: db/migrations
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: production-database-myapp-atlas-migrations-repo
+  targetNamespace: production
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: production-database-myapp-atlas-migrations-repo
+  labels:
+    crossplane.io/composite: production-database
+  name: production-database-myapp-atlas-migrations-repo
+  namespace: production
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: SQLInstance
+    name: production-database
+    uid: ""
+spec:
+  interval: 10m
+  ref:
+    branch: main
+  url: https://github.com/example/myapp.git

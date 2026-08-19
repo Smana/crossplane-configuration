@@ -1,0 +1,122 @@
+---
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: SQLInstance
+metadata:
+  name: my-database
+  namespace: demo
+status:
+  conditions:
+  - lastTransitionTime: "2024-01-01T00:00:00Z"
+    message: 'Unready resources: my-database-cnpg-cluster, my-database-cnpg-externalsecret-myapp,
+      and my-database-cnpg-myapp'
+    reason: Creating
+    status: "False"
+    type: Ready
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: my-database-cnpg-cluster
+  labels:
+    crossplane.io/composite: my-database
+  name: my-database-cnpg-cluster
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: SQLInstance
+    name: my-database
+    uid: ""
+spec:
+  bootstrap:
+    initdb:
+      database: myapp
+      owner: myapp-user
+      secret:
+        name: my-database-cnpg-myapp
+  imageName: ghcr.io/cloudnative-pg/postgresql:18-system-trixie
+  instances: 1
+  managed:
+    roles:
+    - comment: Application database user
+      login: true
+      name: myapp-user
+      passwordSecret:
+        name: my-database-cnpg-myapp
+      superuser: false
+  monitoring:
+    enablePodMonitor: true
+  resources:
+    limits:
+      cpu: "1"
+      memory: 1Gi
+    requests:
+      cpu: "0.5"
+      memory: 1Gi
+  storage:
+    size: 20Gi
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: my-database-cnpg-externalsecret-myapp
+  labels:
+    crossplane.io/composite: my-database
+  name: my-database-cnpg-myapp
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: SQLInstance
+    name: my-database
+    uid: ""
+spec:
+  data:
+  - remoteRef:
+      key: cnpg/my-database/roles/myapp-user
+      property: username
+    secretKey: username
+  - remoteRef:
+      key: cnpg/my-database/roles/myapp-user
+      property: password
+    secretKey: password
+  refreshInterval: 30m
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: clustersecretstore
+  target:
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    name: my-database-cnpg-myapp
+    template:
+      data:
+        password: '{{ .password }}'
+        uri: postgresql://{{ .username | urlquery }}:{{ .password | urlquery }}@my-database-cnpg-cluster-rw.demo.svc:5432/myapp
+        username: '{{ .username }}'
+      engineVersion: v2
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: my-database-cnpg-myapp
+  labels:
+    crossplane.io/composite: my-database
+  name: my-database-cnpg-myapp
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: SQLInstance
+    name: my-database
+    uid: ""
+spec:
+  cluster:
+    name: my-database-cnpg-cluster
+  name: myapp
+  owner: myapp-user
