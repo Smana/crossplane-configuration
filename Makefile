@@ -1,8 +1,11 @@
-.PHONY: generate test schema render build push check clean
+.PHONY: generate test schema render build crds push check clean
 
 APIS := app sqlinstance kvstore inferenceservice epi
 PKGS := core aws
-VERSION ?= 0.1.0
+# v-prefixed to match the git tag, the OCI tag crossplane expects, and the
+# `>=v0.1.0` constraints in packages/*/crossplane.yaml. The release workflow
+# passes the git tag through verbatim.
+VERSION ?= v0.1.0
 REGISTRY ?= ghcr.io/smana
 
 generate:
@@ -35,6 +38,17 @@ build: generate
 	    --examples-root=build/$$p/examples \
 	    --package-file=build/crossplane-configuration-$$p.xpkg || exit 1; \
 	done
+
+# The release asset consumers pin. cloud-native-ref's gen-catalog.sh reads it via
+# XRD_CRDS_FILE, so one version string drives both the installed Configuration
+# and the schemas its claims are validated against.
+#
+# Uses the same converter `make schema` runs, so the published artifact cannot
+# diverge from the one CI validated the examples against.
+crds:
+	@mkdir -p build
+	python3 scripts/xrd-to-crd.py apis/*/definition.yaml > build/xrd-crds.yaml
+	@echo "wrote build/xrd-crds.yaml ($$(grep -c '^kind: CustomResourceDefinition' build/xrd-crds.yaml) CRDs)"
 
 push:
 	@for p in $(PKGS); do \
