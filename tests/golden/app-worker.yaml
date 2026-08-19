@@ -1,0 +1,155 @@
+---
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: App
+metadata:
+  name: orders-consumer
+  namespace: demo
+status:
+  conditions:
+  - lastTransitionTime: "2024-01-01T00:00:00Z"
+    message: 'Unready resources: orders-consumer-deployment, orders-consumer-externalsecret-orders-consumer-secrets,
+      and orders-consumer-serviceaccount'
+    reason: Creating
+    status: "False"
+    type: Ready
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: orders-consumer-deployment
+  labels:
+    app.kubernetes.io/instance: orders-consumer
+    app.kubernetes.io/name: orders-consumer
+    crossplane.io/composite: orders-consumer
+  name: orders-consumer
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: orders-consumer
+    uid: ""
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: orders-consumer
+      app.kubernetes.io/name: orders-consumer
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: orders-consumer
+        app.kubernetes.io/name: orders-consumer
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - args:
+        - --queue
+        - orders
+        - --concurrency
+        - "4"
+        command:
+        - ./consume
+        env:
+        - name: USER
+          value: app
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: LOG_LEVEL
+          value: info
+        - name: QUEUE_URL
+          valueFrom:
+            secretKeyRef:
+              key: queue_url
+              name: orders-consumer-secrets
+        image: ghcr.io/example/orders-consumer:v1.2.0
+        imagePullPolicy: IfNotPresent
+        name: orders-consumer
+        resources:
+          limits:
+            cpu: 200m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: orders-consumer
+      volumes:
+      - emptyDir: {}
+        name: tmp
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: orders-consumer-externalsecret-orders-consumer-secrets
+  labels:
+    crossplane.io/composite: orders-consumer
+  name: orders-consumer-secrets
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: orders-consumer
+    uid: ""
+spec:
+  dataFrom:
+  - extract:
+      conversionStrategy: Default
+      key: apps/orders-consumer/secrets
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: clustersecretstore
+  target:
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    name: orders-consumer-secrets
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: orders-consumer-serviceaccount
+  labels:
+    crossplane.io/composite: orders-consumer
+  name: orders-consumer
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: orders-consumer
+    uid: ""

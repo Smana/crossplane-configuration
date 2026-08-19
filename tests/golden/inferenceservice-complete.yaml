@@ -1,0 +1,785 @@
+---
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: InferenceService
+metadata:
+  name: xplane-qwen3-8b
+  namespace: llm
+status:
+  conditions:
+  - lastTransitionTime: "2024-01-01T00:00:00Z"
+    message: 'Unready resources: xplane-qwen3-8b-deployment, xplane-qwen3-8b-externalsecret-hf-token,
+      xplane-qwen3-8b-httproute, and 6 more'
+    reason: Creating
+    status: "False"
+    type: Ready
+  modelEndpoint: https://llm.priv.cloud.ogenki.io/v1
+  servedModels:
+  - kind: base
+    name: xplane-qwen3-8b
+  - canaryWeightPercent: 15
+    kind: adapter
+    name: xplane-qwen3-8b-sql-expert
+  servedModelsSummary: xplane-qwen3-8b,xplane-qwen3-8b-sql-expert
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-qwen3-8b-cilium-netpol
+  labels:
+    app.kubernetes.io/component: inference
+    app.kubernetes.io/instance: xplane-qwen3-8b
+    app.kubernetes.io/name: xplane-qwen3-8b
+    app.kubernetes.io/part-of: ai
+    crossplane.io/composite: xplane-qwen3-8b
+  name: xplane-qwen3-8b
+  namespace: llm
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: InferenceService
+    name: xplane-qwen3-8b
+    uid: ""
+spec:
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: kube-system
+        k8s-app: kube-dns
+    toPorts:
+    - ports:
+      - port: "53"
+        protocol: UDP
+      - port: "53"
+        protocol: TCP
+      rules:
+        dns:
+        - matchPattern: '*'
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/component: inference
+      app.kubernetes.io/instance: xplane-qwen3-8b
+      app.kubernetes.io/name: xplane-qwen3-8b
+      app.kubernetes.io/part-of: ai
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        app.kubernetes.io/name: vllm-semantic-router
+    - matchLabels:
+        app.kubernetes.io/name: promptfoo
+    - matchLabels:
+        app.kubernetes.io/name: xplane-openwebui
+        io.kubernetes.pod.namespace: apps
+    - matchLabels:
+        gateway.envoyproxy.io/owning-gateway-name: ai-gateway
+        gateway.envoyproxy.io/owning-gateway-namespace: envoy-ai-gateway-system
+        io.kubernetes.pod.namespace: envoy-gateway-system
+    toPorts:
+    - ports:
+      - port: "8000"
+        protocol: TCP
+  - fromEndpoints:
+    - matchLabels:
+        app.kubernetes.io/name: vmagent
+        io.kubernetes.pod.namespace: observability
+    toPorts:
+    - ports:
+      - port: "8000"
+        protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-qwen3-8b-cilium-netpol-preload
+  labels:
+    app.kubernetes.io/component: inference
+    app.kubernetes.io/instance: xplane-qwen3-8b
+    app.kubernetes.io/name: xplane-qwen3-8b
+    app.kubernetes.io/part-of: ai
+    crossplane.io/composite: xplane-qwen3-8b
+  name: xplane-qwen3-8b-preload
+  namespace: llm
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: InferenceService
+    name: xplane-qwen3-8b
+    uid: ""
+spec:
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: kube-system
+        k8s-app: kube-dns
+    toPorts:
+    - ports:
+      - port: "53"
+        protocol: UDP
+      - port: "53"
+        protocol: TCP
+      rules:
+        dns:
+        - matchPattern: '*'
+  - toFQDNs:
+    - matchPattern: '*.s3.eu-west-3.amazonaws.com'
+    - matchName: s3.eu-west-3.amazonaws.com
+    - matchPattern: '*.secretsmanager.eu-west-3.amazonaws.com'
+    toPorts:
+    - ports:
+      - port: "443"
+        protocol: TCP
+  - toEntities:
+    - world
+    toPorts:
+    - ports:
+      - port: "443"
+        protocol: TCP
+  - toEntities:
+    - host
+    toPorts:
+    - ports:
+      - port: "80"
+        protocol: TCP
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/component: preload
+      app.kubernetes.io/instance: xplane-qwen3-8b
+      app.kubernetes.io/name: xplane-qwen3-8b
+      app.kubernetes.io/part-of: ai
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-qwen3-8b-deployment
+  labels:
+    app.kubernetes.io/component: inference
+    app.kubernetes.io/instance: xplane-qwen3-8b
+    app.kubernetes.io/name: xplane-qwen3-8b
+    app.kubernetes.io/part-of: ai
+    crossplane.io/composite: xplane-qwen3-8b
+  name: xplane-qwen3-8b
+  namespace: llm
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: InferenceService
+    name: xplane-qwen3-8b
+    uid: ""
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: inference
+      app.kubernetes.io/instance: xplane-qwen3-8b
+      app.kubernetes.io/name: xplane-qwen3-8b
+      app.kubernetes.io/part-of: ai
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: inference
+        app.kubernetes.io/instance: xplane-qwen3-8b
+        app.kubernetes.io/name: xplane-qwen3-8b
+        app.kubernetes.io/part-of: ai
+    spec:
+      automountServiceAccountToken: true
+      containers:
+      - args:
+        - --model
+        - /models/main
+        - --served-model-name
+        - xplane-qwen3-8b
+        - --max-model-len
+        - "32768"
+        - --max-num-seqs
+        - "32"
+        - --gpu-memory-utilization
+        - "0.92"
+        - --quantization
+        - fp8
+        - --enable-prefix-caching
+        - --cpu-offload-gb
+        - "16"
+        - --enable-lora
+        - --max-loras
+        - "1"
+        - --max-lora-rank
+        - "64"
+        - --lora-modules
+        - xplane-qwen3-8b-sql-expert=/models/loras/xplane-qwen3-8b-sql-expert
+        - --load-format
+        - runai_streamer
+        - --model-loader-extra-config
+        - '{"concurrency": 16}'
+        - --kv-cache-dtype=fp8
+        - --enforce-eager
+        env:
+        - name: HF_HOME
+          value: /models/.huggingface
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: VLLM_LOGGING_LEVEL
+          value: INFO
+        - name: USER
+          value: vllm
+        - name: HOME
+          value: /tmp
+        envFrom:
+        - secretRef:
+            name: hf-token
+        - secretRef:
+            name: hf-token
+        image: vllm/vllm-openai:v0.25.0
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+        name: vllm
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+        resources:
+          limits:
+            cpu: "8"
+            memory: 32Gi
+            nvidia.com/gpu: 1
+          requests:
+            cpu: "2"
+            memory: 16Gi
+            nvidia.com/gpu: 1
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+        startupProbe:
+          failureThreshold: 30
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 10
+        volumeMounts:
+        - mountPath: /models
+          name: models
+          subPath: xplane-qwen3-8b
+        - mountPath: /tmp
+          name: tmp
+        - mountPath: /dev/shm
+          name: shm
+      nodeSelector:
+        karpenter.sh/nodepool: gpu-l4
+      runtimeClassName: nvidia
+      securityContext:
+        fsGroup: 1001
+        runAsNonRoot: true
+        runAsUser: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: xplane-qwen3-8b
+      terminationGracePeriodSeconds: 60
+      tolerations:
+      - effect: NoSchedule
+        key: nvidia.com/gpu
+        operator: Exists
+      volumes:
+      - name: models
+        persistentVolumeClaim:
+          claimName: llm-models
+      - emptyDir: {}
+        name: tmp
+      - emptyDir:
+          medium: Memory
+          sizeLimit: 8Gi
+        name: shm
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-qwen3-8b-externalsecret-hf-token
+  labels:
+    app.kubernetes.io/component: inference
+    app.kubernetes.io/instance: xplane-qwen3-8b
+    app.kubernetes.io/name: xplane-qwen3-8b
+    app.kubernetes.io/part-of: ai
+    crossplane.io/composite: xplane-qwen3-8b
+  name: hf-token
+  namespace: llm
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: InferenceService
+    name: xplane-qwen3-8b
+    uid: ""
+spec:
+  dataFrom:
+  - extract:
+      conversionStrategy: Default
+      key: /platform/llm/hf_token
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: clustersecretstore
+  target:
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    name: hf-token
+---
+apiVersion: aigateway.envoyproxy.io/v1alpha1
+kind: AIServiceBackend
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-qwen3-8b-gateway-aiservicebackend
+  labels:
+    app.kubernetes.io/component: inference
+    app.kubernetes.io/instance: xplane-qwen3-8b
+    app.kubernetes.io/name: xplane-qwen3-8b
+    app.kubernetes.io/part-of: ai
+    crossplane.io/composite: xplane-qwen3-8b
+  name: xplane-qwen3-8b
+  namespace: llm
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: InferenceService
+    name: xplane-qwen3-8b
+    uid: ""
+spec:
+  backendRef:
+    group: gateway.envoyproxy.io
+    kind: Backend
+    name: xplane-qwen3-8b-direct
+  schema:
+    name: OpenAI
+---
+apiVersion: aigateway.envoyproxy.io/v1alpha1
+kind: AIServiceBackend
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-qwen3-8b-gateway-aiservicebackend-canary-0
+  labels:
+    app.kubernetes.io/component: inference
+    app.kubernetes.io/instance: xplane-qwen3-8b
+    app.kubernetes.io/name: xplane-qwen3-8b
+    app.kubernetes.io/part-of: ai
+    crossplane.io/composite: xplane-qwen3-8b
+  name: xplane-qwen3-8b-canary-0
+  namespace: llm
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: InferenceService
+    name: xplane-qwen3-8b
+    uid: ""
+spec:
+  backendRef:
+    group: gateway.envoyproxy.io
+    kind: Backend
+    name: xplane-qwen3-8b-direct
+  schema:
+    name: OpenAI
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: Backend
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-qwen3-8b-gateway-backend
+  labels:
+    app.kubernetes.io/component: inference
+    app.kubernetes.io/instance: xplane-qwen3-8b
+    app.kubernetes.io/name: xplane-qwen3-8b
+    app.kubernetes.io/part-of: ai
+    crossplane.io/composite: xplane-qwen3-8b
+  name: xplane-qwen3-8b-direct
+  namespace: llm
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: InferenceService
+    name: xplane-qwen3-8b
+    uid: ""
+spec:
+  endpoints:
+  - fqdn:
+      hostname: xplane-qwen3-8b.llm.svc.cluster.local
+      port: 8000
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-qwen3-8b-httproute
+  labels:
+    app.kubernetes.io/component: inference
+    app.kubernetes.io/instance: xplane-qwen3-8b
+    app.kubernetes.io/name: xplane-qwen3-8b
+    app.kubernetes.io/part-of: ai
+    crossplane.io/composite: xplane-qwen3-8b
+  name: xplane-qwen3-8b
+  namespace: llm
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: InferenceService
+    name: xplane-qwen3-8b
+    uid: ""
+spec:
+  hostnames:
+  - qwen3.priv.cloud.ogenki.io
+  parentRefs:
+  - name: platform-tailscale-general
+    namespace: infrastructure
+  rules:
+  - backendRefs:
+    - name: xplane-qwen3-8b
+      port: 8000
+    matches:
+    - path:
+        type: PathPrefix
+        value: /
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-qwen3-8b-preload-job
+  labels:
+    app.kubernetes.io/component: inference
+    app.kubernetes.io/instance: xplane-qwen3-8b
+    app.kubernetes.io/name: xplane-qwen3-8b
+    app.kubernetes.io/part-of: ai
+    crossplane.io/composite: xplane-qwen3-8b
+  name: xplane-qwen3-8b-preload-main
+  namespace: llm
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: InferenceService
+    name: xplane-qwen3-8b
+    uid: ""
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: preload
+        app.kubernetes.io/instance: xplane-qwen3-8b
+        app.kubernetes.io/name: xplane-qwen3-8b
+        app.kubernetes.io/part-of: ai
+    spec:
+      containers:
+      - args:
+        - |
+          set -euo pipefail
+          DIR="/models/main"
+          MARKER="$DIR/.preload-complete"
+          WANT="Qwen/Qwen3-8B@main"
+          BASE_DONE=0
+          # `find` returns non-zero when the directory does not exist (fresh
+          # preload, never run before). Combined with `set -e -o pipefail` this
+          # would abort the script before we even reach `hf download`. Guard the
+          # call so a missing cache dir simply yields INCOMPLETE_COUNT=0.
+          if [ -d "$DIR/.cache/huggingface/download" ]; then
+            INCOMPLETE_COUNT=$(find "$DIR/.cache/huggingface/download/" -maxdepth 1 -name '*.incomplete' | wc -l)
+          else
+            INCOMPLETE_COUNT=0
+          fi
+          # `.incomplete` files trump every other signal: even a matching marker
+          # is wrong if the xet cache says a shard never finished. Earlier code
+          # baked a bad marker after a stalled download and the wrong marker
+          # would otherwise short-circuit forever — clean those up explicitly
+          # before the marker check.
+          if [ "$INCOMPLETE_COUNT" -gt 0 ]; then
+            echo "[preload] $INCOMPLETE_COUNT .incomplete file(s) in xet cache — clearing stale marker, will resume download."
+            rm -f "$MARKER"
+          elif [ -f "$MARKER" ] && [ "$(cat "$MARKER" 2>/dev/null)" = "$WANT" ]; then
+            echo "[preload] $WANT already complete (marker) — skipping base download."
+            BASE_DONE=1
+          elif [ -f "$DIR/config.json" ]; then
+            echo "[preload] $WANT files already in bucket (config.json present, no .incomplete cache) — recording marker, skipping base download."
+            printf '%s' "$WANT" > "$MARKER.tmp" && mv "$MARKER.tmp" "$MARKER" || true
+            BASE_DONE=1
+          fi
+          export PATH="/tmp/pip/bin:$PATH"
+          export PYTHONPATH="/tmp/pip"
+          pip install --quiet --target /tmp/pip --upgrade --no-cache-dir huggingface_hub
+          if [ "$BASE_DONE" -ne 1 ]; then
+            hf download Qwen/Qwen3-8B --revision main --local-dir "$DIR" --max-workers 1
+            printf '%s' "$WANT" > "$MARKER.tmp" && mv "$MARKER.tmp" "$MARKER"
+          fi
+          echo '[preload] Downloading LoRA adapters...'
+          mkdir -p /models/loras
+          hf download org/qwen3-sql-lora --revision main --local-dir /models/loras/xplane-qwen3-8b-sql-expert --max-workers 1
+          echo '[preload] Done.'
+        command:
+        - /bin/sh
+        - -c
+        env:
+        - name: HF_HOME
+          value: /tmp/.huggingface
+        - name: HF_HUB_DISABLE_XET
+          value: "1"
+        - name: HF_HUB_DOWNLOAD_TIMEOUT
+          value: "120"
+        envFrom:
+        - secretRef:
+            name: hf-token
+        - secretRef:
+            name: hf-token
+        image: public.ecr.aws/docker/library/python:3.12-slim
+        name: preload
+        resources:
+          limits:
+            cpu: "4"
+            memory: 8Gi
+          requests:
+            cpu: "1"
+            memory: 2Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        volumeMounts:
+        - mountPath: /models
+          name: models
+          subPath: xplane-qwen3-8b
+        - mountPath: /tmp
+          name: tmp
+      restartPolicy: OnFailure
+      securityContext:
+        fsGroup: 1001
+        runAsNonRoot: true
+        runAsUser: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: xplane-llm-models-preload
+      volumes:
+      - name: models
+        persistentVolumeClaim:
+          claimName: llm-models
+      - emptyDir:
+          sizeLimit: 32Gi
+        name: tmp
+  ttlSecondsAfterFinished: 86400
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-qwen3-8b-scaledobject
+  labels:
+    app.kubernetes.io/component: inference
+    app.kubernetes.io/instance: xplane-qwen3-8b
+    app.kubernetes.io/name: xplane-qwen3-8b
+    app.kubernetes.io/part-of: ai
+    crossplane.io/composite: xplane-qwen3-8b
+  name: xplane-qwen3-8b
+  namespace: llm
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: InferenceService
+    name: xplane-qwen3-8b
+    uid: ""
+spec:
+  cooldownPeriod: 300
+  maxReplicaCount: 3
+  minReplicaCount: 1
+  pollingInterval: 15
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: xplane-qwen3-8b
+  triggers:
+  - metadata:
+      activationThreshold: "0.05"
+      query: max(vllm:num_requests_running{model_name="xplane-qwen3-8b"}) / scalar(vector(32))
+      serverAddress: http://vmsingle-victoria-metrics-k8s-stack.observability.svc:8428
+      threshold: "0.7"
+    type: prometheus
+  - metadata:
+      activationThreshold: "0.05"
+      query: max(vllm:kv_cache_usage_perc{model_name="xplane-qwen3-8b"})
+      serverAddress: http://vmsingle-victoria-metrics-k8s-stack.observability.svc:8428
+      threshold: "0.6"
+    type: prometheus
+  - metadata:
+      activationThreshold: "1"
+      query: max(vllm:num_requests_waiting{model_name="xplane-qwen3-8b"})
+      serverAddress: http://vmsingle-victoria-metrics-k8s-stack.observability.svc:8428
+      threshold: "8"
+    type: prometheus
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-qwen3-8b-service
+  labels:
+    app.kubernetes.io/component: inference
+    app.kubernetes.io/instance: xplane-qwen3-8b
+    app.kubernetes.io/name: xplane-qwen3-8b
+    app.kubernetes.io/part-of: ai
+    crossplane.io/composite: xplane-qwen3-8b
+  name: xplane-qwen3-8b
+  namespace: llm
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: InferenceService
+    name: xplane-qwen3-8b
+    uid: ""
+spec:
+  ports:
+  - name: http
+    port: 8000
+    protocol: TCP
+    targetPort: http
+  selector:
+    app.kubernetes.io/component: inference
+    app.kubernetes.io/instance: xplane-qwen3-8b
+    app.kubernetes.io/name: xplane-qwen3-8b
+    app.kubernetes.io/part-of: ai
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-qwen3-8b-serviceaccount
+  labels:
+    app.kubernetes.io/component: inference
+    app.kubernetes.io/instance: xplane-qwen3-8b
+    app.kubernetes.io/name: xplane-qwen3-8b
+    app.kubernetes.io/part-of: ai
+    crossplane.io/composite: xplane-qwen3-8b
+  name: xplane-qwen3-8b
+  namespace: llm
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: InferenceService
+    name: xplane-qwen3-8b
+    uid: ""
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-qwen3-8b-vmrule
+  labels:
+    app.kubernetes.io/component: inference
+    app.kubernetes.io/instance: xplane-qwen3-8b
+    app.kubernetes.io/name: xplane-qwen3-8b
+    app.kubernetes.io/part-of: ai
+    crossplane.io/composite: xplane-qwen3-8b
+  name: xplane-qwen3-8b
+  namespace: llm
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: InferenceService
+    name: xplane-qwen3-8b
+    uid: ""
+spec:
+  groups:
+  - name: xplane-qwen3-8b-slo
+    rules:
+    - alert: InferenceServiceColdStartBudgetExceeded
+      annotations:
+        description: p95 TTFT over 90s for the last 10m on xplane-qwen3-8b.
+        summary: Cold-start budget exceeded for xplane-qwen3-8b
+      expr: histogram_quantile(0.95, sum by (le) (rate(vllm:time_to_first_token_seconds_bucket{model_name="xplane-qwen3-8b"}[5m])))
+        > 90
+      for: 10m
+      labels:
+        model: xplane-qwen3-8b
+        severity: warning
+    - alert: InferenceServiceErrorRateHigh
+      annotations:
+        description: vllm:request_success_total{finished_reason="abort"} share exceeded
+          5% for 10m on xplane-qwen3-8b.
+        summary: Abort rate > 5% on xplane-qwen3-8b
+      expr: sum(rate(vllm:request_success_total{model_name="xplane-qwen3-8b",finished_reason="abort"}[10m]))
+        / sum(rate(vllm:request_success_total{model_name="xplane-qwen3-8b"}[10m]))
+        > 0.05
+      for: 10m
+      labels:
+        model: xplane-qwen3-8b
+        severity: critical
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-qwen3-8b-vmservicescrape
+  labels:
+    app.kubernetes.io/component: inference
+    app.kubernetes.io/instance: xplane-qwen3-8b
+    app.kubernetes.io/name: xplane-qwen3-8b
+    app.kubernetes.io/part-of: ai
+    crossplane.io/composite: xplane-qwen3-8b
+  name: xplane-qwen3-8b
+  namespace: llm
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: InferenceService
+    name: xplane-qwen3-8b
+    uid: ""
+spec:
+  endpoints:
+  - interval: 30s
+    path: /metrics
+    port: http
+    scrapeTimeout: 10s
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: inference
+      app.kubernetes.io/instance: xplane-qwen3-8b
+      app.kubernetes.io/name: xplane-qwen3-8b
+      app.kubernetes.io/part-of: ai

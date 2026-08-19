@@ -1,0 +1,729 @@
+---
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: App
+metadata:
+  name: image-gallery
+  namespace: demo
+status:
+  conditions:
+  - lastTransitionTime: "2024-01-01T00:00:00Z"
+    message: 'Unready resources: image-gallery-cilium-netpol, image-gallery-deployment,
+      image-gallery-externalsecret-app-secrets, and 11 more'
+    reason: Creating
+    status: "False"
+    type: Ready
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: image-gallery-cilium-netpol
+  labels:
+    crossplane.io/composite: image-gallery
+  name: image-gallery
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: image-gallery
+    uid: ""
+spec:
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: kube-system
+        k8s-app: kube-dns
+    toPorts:
+    - ports:
+      - port: "53"
+        protocol: UDP
+      - port: "53"
+        protocol: TCP
+      rules:
+        dns:
+        - matchPattern: '*'
+  - toEndpoints:
+    - matchLabels:
+        cnpg.io/cluster: xplane-image-gallery-cnpg-cluster
+    toPorts:
+    - ports:
+      - port: "5432"
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        app.kubernetes.io/instance: xplane-image-gallery-valkey
+        app.kubernetes.io/name: valkey
+    toPorts:
+    - ports:
+      - port: "6379"
+        protocol: TCP
+  - toEntities:
+    - host
+    toPorts:
+    - ports:
+      - port: "80"
+        protocol: TCP
+  - toEntities:
+    - world
+    toPorts:
+    - ports:
+      - port: "443"
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: kube-system
+        k8s-app: kube-dns
+    toPorts:
+    - ports:
+      - port: "53"
+        protocol: UDP
+      - port: "53"
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        cnpg.io/cluster: image-gallery-sqlinstance-cnpg-cluster
+    toPorts:
+    - ports:
+      - port: "5432"
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        app.kubernetes.io/instance: xplane-image-gallery-valkey
+        app.kubernetes.io/name: valkey
+    toPorts:
+    - ports:
+      - port: "6379"
+        protocol: TCP
+  - toEntities:
+    - host
+    toPorts:
+    - ports:
+      - port: "80"
+        protocol: TCP
+  - toEntities:
+    - world
+    toPorts:
+    - ports:
+      - port: "80"
+        protocol: TCP
+      - port: "443"
+        protocol: TCP
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/instance: image-gallery
+      app.kubernetes.io/name: image-gallery
+  ingress:
+  - fromEntities:
+    - ingress
+    toPorts:
+    - ports:
+      - port: "8080"
+        protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: image-gallery-deployment
+  labels:
+    app.kubernetes.io/instance: image-gallery
+    app.kubernetes.io/name: image-gallery
+    crossplane.io/composite: image-gallery
+  name: image-gallery
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: image-gallery
+    uid: ""
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: image-gallery
+      app.kubernetes.io/name: image-gallery
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: image-gallery
+        app.kubernetes.io/name: image-gallery
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/instance: image-gallery
+                  app.kubernetes.io/name: image-gallery
+              topologyKey: kubernetes.io/hostname
+            weight: 100
+      automountServiceAccountToken: false
+      containers:
+      - env:
+        - name: USER
+          value: app
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              key: uri
+              name: xplane-image-gallery-cnpg-image-gallery
+        - name: REDIS_URL
+          value: redis://xplane-image-gallery-valkey:6379
+        - name: APP_ENV
+          value: production
+        - name: LOG_LEVEL
+          value: info
+        - name: PORT
+          value: "8080"
+        - name: DATABASE_HOST
+          valueFrom:
+            configMapKeyRef:
+              key: db_host
+              name: app-config
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              key: api_key
+              name: app-secrets
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        envFrom:
+        - configMapRef:
+            name: app-config-all
+            optional: false
+        - secretRef:
+            name: app-secrets-all
+            optional: false
+        - configMapRef:
+            name: database-config
+            optional: true
+          prefix: DB_
+        image: ghcr.io/smana/image-gallery:1.7.7
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 3
+        name: image-gallery
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /readyz
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+        startupProbe:
+          failureThreshold: 30
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 0
+          periodSeconds: 5
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
+        - mountPath: /data
+          name: data
+      - args:
+        - --nginx.scrape-uri=http://localhost:8080/stub_status
+        image: nginx/nginx-prometheus-exporter:1.5.3
+        name: metrics-adapter
+        ports:
+        - containerPort: 9113
+          name: sidecar-metrics
+          protocol: TCP
+        resources:
+          limits:
+            cpu: 50m
+            memory: 32Mi
+          requests:
+            cpu: 10m
+            memory: 16Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+      imagePullSecrets:
+      - name: regcred
+      initContainers:
+      - command:
+        - sh
+        - -c
+        - until nc -z image-gallery-rw 5432; do sleep 2; done
+        image: busybox:1.38
+        name: wait-for-db
+        resources:
+          limits:
+            cpu: 50m
+            memory: 32Mi
+          requests:
+            cpu: 10m
+            memory: 16Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+      securityContext:
+        fsGroup: 1001
+        runAsNonRoot: true
+        runAsUser: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: image-gallery
+      terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+      - labelSelector:
+          matchLabels:
+            app.kubernetes.io/instance: image-gallery
+            app.kubernetes.io/name: image-gallery
+        maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: ScheduleAnyway
+      volumes:
+      - emptyDir: {}
+        name: tmp
+      - name: data
+        persistentVolumeClaim:
+          claimName: image-gallery-data
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: image-gallery-externalsecret-app-secrets
+  labels:
+    crossplane.io/composite: image-gallery
+  name: app-secrets
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: image-gallery
+    uid: ""
+spec:
+  dataFrom:
+  - extract:
+      conversionStrategy: Default
+      key: apps/image-gallery/secrets
+  refreshInterval: 30m
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: clustersecretstore
+  target:
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    name: app-secrets
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: image-gallery-externalsecret-app-secrets-all
+  labels:
+    crossplane.io/composite: image-gallery
+  name: app-secrets-all
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: image-gallery
+    uid: ""
+spec:
+  dataFrom:
+  - extract:
+      conversionStrategy: Default
+      key: apps/image-gallery/secrets-all
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: clustersecretstore
+  target:
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    name: app-secrets-all
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: image-gallery-hpa
+  labels:
+    crossplane.io/composite: image-gallery
+  name: image-gallery
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: image-gallery
+    uid: ""
+spec:
+  maxReplicas: 5
+  metrics:
+  - resource:
+      name: cpu
+      target:
+        averageUtilization: 70
+        type: Utilization
+    type: Resource
+  minReplicas: 2
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: image-gallery
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: image-gallery-httproute
+  labels:
+    crossplane.io/composite: image-gallery
+  name: image-gallery
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: image-gallery
+    uid: ""
+spec:
+  hostnames:
+  - image-gallery.cloud.ogenki.io
+  parentRefs:
+  - name: platform-public
+    namespace: infrastructure
+  rules:
+  - backendRefs:
+    - name: image-gallery
+      port: 8080
+    matches:
+    - path:
+        type: PathPrefix
+        value: /
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: image-gallery-pdb
+  labels:
+    crossplane.io/composite: image-gallery
+  name: image-gallery
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: image-gallery
+    uid: ""
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: image-gallery
+      app.kubernetes.io/name: image-gallery
+  unhealthyPodEvictionPolicy: AlwaysAllow
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: image-gallery-pvc
+  labels:
+    app.kubernetes.io/instance: image-gallery
+    app.kubernetes.io/name: image-gallery
+    crossplane.io/composite: image-gallery
+  name: image-gallery-data
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: image-gallery
+    uid: ""
+spec:
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: s3.aws.m.upbound.io/v1beta1
+kind: Bucket
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: image-gallery-s3-bucket
+    crossplane.io/external-name: eu-west-3-ogenki-image-gallery
+  labels:
+    crossplane.io/composite: image-gallery
+  name: image-gallery-s3-bucket
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: image-gallery
+    uid: ""
+spec:
+  forProvider:
+    region: eu-west-3
+  providerConfigRef:
+    kind: ClusterProviderConfig
+    name: default
+---
+apiVersion: s3.aws.m.upbound.io/v1beta1
+kind: BucketVersioning
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: image-gallery-s3-bucket-versioning
+  labels:
+    crossplane.io/composite: image-gallery
+  name: image-gallery-s3-bucket-versioning
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: image-gallery
+    uid: ""
+spec:
+  forProvider:
+    bucketRef:
+      name: image-gallery-s3-bucket
+    region: eu-west-3
+    versioningConfiguration:
+      status: Enabled
+  providerConfigRef:
+    kind: ClusterProviderConfig
+    name: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: image-gallery-service
+  labels:
+    app.kubernetes.io/instance: image-gallery
+    app.kubernetes.io/name: image-gallery
+    crossplane.io/composite: image-gallery
+  name: image-gallery
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: image-gallery
+    uid: ""
+spec:
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: http
+  - name: metrics
+    port: 9113
+    protocol: TCP
+    targetPort: 9113
+  selector:
+    app.kubernetes.io/instance: image-gallery
+    app.kubernetes.io/name: image-gallery
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: image-gallery-serviceaccount
+  labels:
+    crossplane.io/composite: image-gallery
+  name: image-gallery
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: image-gallery
+    uid: ""
+---
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: KVStore
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-image-gallery-kvstore
+  labels:
+    crossplane.io/composite: image-gallery
+  name: xplane-image-gallery
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: image-gallery
+    uid: ""
+spec:
+  size: small
+---
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: EPI
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-image-gallery-s3-pod-identity
+  labels:
+    crossplane.io/composite: image-gallery
+  name: xplane-image-gallery-s3-pod-identity
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: image-gallery
+    uid: ""
+spec:
+  clusters:
+  - name: mycluster-0
+    region: eu-west-3
+  policyDocument: |-
+    {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Action": [
+                        "s3:ListBucket"
+                    ],
+                    "Resource": "arn:aws:s3:::eu-west-3-ogenki-image-gallery"
+                },
+                {
+                    "Effect": "Allow",
+                    "Action": [
+                        "s3:GetObject",
+                        "s3:PutObject",
+                        "s3:DeleteObject"
+                    ],
+                    "Resource": "arn:aws:s3:::eu-west-3-ogenki-image-gallery/*"
+                }
+            ]
+        }
+  serviceAccount:
+    name: image-gallery
+    namespace: demo
+---
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: SQLInstance
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-image-gallery-sqlinstance
+  labels:
+    crossplane.io/composite: image-gallery
+  name: xplane-image-gallery
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: image-gallery
+    uid: ""
+spec:
+  atlasSchema:
+    path: internal/platform/database/migrations
+    ref: main
+    url: https://github.com/Smana/image-gallery.git
+  backup:
+    bucketName: image-gallery-db-backups
+    retentionPolicy: 30d
+    schedule: 0 2 * * *
+  databases:
+  - name: image-gallery
+    owner: image-gallery-app
+  instances: 2
+  postgresql:
+    parameters:
+      max_connections: 100
+      shared_buffers: 256MB
+    pg_hba:
+    - host all all 0.0.0.0/0 md5
+  primaryUpdateStrategy: unsupervised
+  roles:
+  - comment: Application user for image-gallery
+    inRoles:
+    - pg_monitor
+    name: image-gallery-app
+    superuser: false
+  size: small
+  storageSize: 20Gi
