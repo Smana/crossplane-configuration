@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# Every gate that exists today runs here. Steps are added as the tasks that
+# introduce them land, rather than written ahead of the targets they call:
+#
+#   Task 4/5  ->  make render   (golden fixtures + render equivalence)
+#   Task 6    ->  make build    (assemble + crossplane xpkg build)
+#   Task 7    ->  make crds     (XRD-to-CRD release asset)
+#   Task 8    ->  scripts/check_function_pins.py
+#
+# A workflow that calls make targets which do not exist yet is red on every PR
+# from the first commit, and a permanently red CI teaches people to ignore it.
+
+jobs:
+  check:
+    name: Validate the APIs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install mise-managed tools
+        uses: jdx/mise-action@v3
+
+      # Pinned rather than floating: the plugin is what provides `flux schema`,
+      # and an unpinned install silently follows whatever upstream released.
+      - name: Install the flux-schema plugin
+        run: flux plugin install schema@0.11.0
+
+      - name: Install Python dependencies
+        run: python3 -m pip install --quiet --disable-pip-version-check pyyaml pytest
+
+      - name: KCL format and unit tests
+        run: make test
+
+      - name: Generator unit tests
+        run: python3 -m pytest tests/test_generate.py -v
+
+      # The Compositions are generated artifacts. If main.k changed without a
+      # regenerate, what ships would not match the module it claims to inline.
+      - name: Compositions are in sync with the KCL
+        run: |
+          make generate
+          git diff --exit-code -- apis/ \
+            || { echo "::error::composition.yaml is stale. Run 'make generate' and commit."; exit 1; }
+
+      - name: Example claims validate against the shipped XRDs
+        run: make schema
