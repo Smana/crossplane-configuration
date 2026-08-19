@@ -1,0 +1,105 @@
+version: "3"
+
+vars:
+  APIS: app sqlinstance kvstore inferenceservice epi
+  PKGS: core aws
+  # v-prefixed to match the git tag, the OCI tag crossplane expects, and the
+  # `>=v0.1.0` constraints in packages/*/crossplane.yaml. The release workflow
+  # passes the git tag through verbatim.
+  VERSION: '{{.VERSION | default "v0.1.0"}}'
+  REGISTRY: '{{.REGISTRY | default "ghcr.io/smana"}}'
+
+tasks:
+  default:
+    cmds:
+      - task: check
+
+  check:
+    desc: Every gate CI runs — generate-sync, kcl fmt/test, XRD schema, render equivalence
+    cmds:
+      - task: generate-sync
+      - task: test
+      - task: schema
+      - task: render
+
+  generate:
+    desc: Inline each KCL module into its composition.yaml
+    cmds:
+      - python3 scripts/generate.py
+
+  generate-sync:
+    desc: Fail if a composition.yaml is stale relative to its main.k
+    cmds:
+      - task: generate
+      - cmd: |
+          git diff --exit-code -- apis/ \
+            || { echo "ERROR: composition.yaml is stale. Run 'task generate' and commit."; exit 1; }
+        silent: true
+
+  # `kcl fmt` has no --check flag (0.11.3), so format in place and require the tree
+  # to be unchanged. A dirty diff here means someone committed unformatted KCL.
+  test:
+    desc: kcl fmt (via diff) and kcl test, per API
+    cmds:
+      - for: { var: APIS }
+        cmd: |
+          echo "==> {{.ITEM}}"
+          cd apis/{{.ITEM}}/kcl
+          kcl fmt . >/dev/null
+          git diff --quiet -- . || {
+            echo "ERROR: apis/{{.ITEM}}/kcl is not kcl-fmt clean. Commit the reformat."
+            git diff --stat -- .
+            exit 1
+          }
+          kcl test . -Y settings-example.yaml
+
+  schema:
+    desc: Validate every example claim against the shipped XRDs
+    cmds:
+      - ./scripts/validate-schemas.sh
+
+  render:
+    desc: Render every example and diff against tests/golden/
+    cmds:
+      - python3 scripts/render_check.py
+
+  build:
+    desc: Produce both .xpkg files
+    cmds:
+      - task: generate
+      - ./scripts/assemble.sh
+      - for: { var: PKGS }
+        cmd: |
+          crossplane xpkg build \
+            --package-root=build/{{.ITEM}} \
+            --examples-root=build/{{.ITEM}}/examples \
+            --package-file=build/crossplane-configuration-{{.ITEM}}.xpkg
+
+  # The release asset consumers pin. cloud-native-ref's gen-catalog.sh reads it via
+  # XRD_CRDS_FILE, so one version string drives both the installed Configuration
+  # and the schemas its claims are validated against.
+  #
+  # Uses the same converter `task schema` runs, so the published artifact cannot
+  # diverge from the one CI validated the examples against.
+  crds:
+    desc: Build the xrd-crds.yaml release asset
+    cmds:
+      - mkdir -p build
+      - python3 scripts/xrd-to-crd.py apis/*/definition.yaml > build/xrd-crds.yaml
+      - cmd: |
+          echo "wrote build/xrd-crds.yaml ($(grep -c '^kind: CustomResourceDefinition' build/xrd-crds.yaml) CRDs)"
+        silent: true
+
+  push:
+    desc: Push both packages to the registry (VERSION=vX.Y.Z)
+    cmds:
+      - for: { var: PKGS }
+        cmd: |
+          crossplane xpkg push \
+            -f build/crossplane-configuration-{{.ITEM}}.xpkg \
+            {{.REGISTRY}}/crossplane-configuration-{{.ITEM}}:{{.VERSION}}
+
+  clean:
+    desc: Remove build artifacts
+    cmds:
+      - rm -rf build/

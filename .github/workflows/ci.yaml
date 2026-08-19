@@ -11,10 +11,10 @@ permissions:
 # Every gate that exists today runs here. Steps are added as the tasks that
 # introduce them land, rather than written ahead of the targets they call:
 #
-#   Task 7    ->  make crds     (XRD-to-CRD release asset)
+#   Task 7    ->  task crds     (XRD-to-CRD release asset)
 #   Task 8    ->  scripts/check_function_pins.py
 #
-# A workflow that calls make targets which do not exist yet is red on every PR
+# A workflow that calls task targets which do not exist yet is red on every PR
 # from the first commit, and a permanently red CI teaches people to ignore it.
 
 jobs:
@@ -37,7 +37,7 @@ jobs:
         run: python3 -m pip install --quiet --disable-pip-version-check pyyaml pytest
 
       - name: KCL format and unit tests
-        run: make test
+        run: task test
 
       - name: Generator unit tests
         run: python3 -m pytest tests/test_generate.py -v
@@ -46,21 +46,21 @@ jobs:
       # regenerate, what ships would not match the module it claims to inline.
       - name: Compositions are in sync with the KCL
         run: |
-          make generate
+          task generate
           git diff --exit-code -- apis/ \
-            || { echo "::error::composition.yaml is stale. Run 'make generate' and commit."; exit 1; }
+            || { echo "::error::composition.yaml is stale. Run 'task generate' and commit."; exit 1; }
 
       - name: Example claims validate against the shipped XRDs
-        run: make schema
+        run: task schema
 
       # The extraction's central premise: inlining the KCL must not change what
       # the Composition produces. Docker is present on ubuntu-latest, so
       # crossplane render can run the functions.
       - name: Render equivalence against golden fixtures
-        run: make render
+        run: task render
 
       - name: Build both packages
-        run: make build
+        run: task build
 
       # A package that builds but still points at an OCI module would defeat the
       # whole extraction: adopters would need network access to a registry this

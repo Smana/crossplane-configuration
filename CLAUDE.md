@@ -8,7 +8,7 @@ Crossplane Configuration packages for the [ogenki](https://blog.ogenki.io) platf
 ## The one thing to know
 
 `apis/<api>/kcl/main.k` is the source of truth. `apis/<api>/composition.yaml` is **generated** —
-`make generate` inlines the KCL into it as a block scalar. Never edit the inlined copy; CI
+`task generate` inlines the KCL into it as a block scalar. Never edit the inlined copy; CI
 regenerates and fails if the two disagree.
 
 Inlining is the point of this repo: an installed package pulls nothing at render time.
@@ -31,12 +31,12 @@ APIs: `App`, `SQLInstance`, `KVStore`, `InferenceService` (core) and `EPI` + the
 
 ```bash
 mise install
-make check     # generate-sync + kcl fmt/test + XRD schema + render equivalence
-make build     # both .xpkg files
-make render    # render every example, diff against tests/golden/
+task check     # generate-sync + kcl fmt/test + XRD schema + render equivalence
+task build     # both .xpkg files
+task render    # render every example, diff against tests/golden/
 ```
 
-`make check` is the gate. CI runs the same targets plus `check_packages.sh`, which asserts the built
+`task check` is the gate. CI runs the same targets plus `check_packages.sh`, which asserts the built
 packages carry no `oci://` module reference.
 
 ## Releasing
@@ -47,7 +47,7 @@ Tag; nothing publishes from `main`.
 git tag v0.2.0 && git push origin v0.2.0
 ```
 
-The release workflow re-runs `make check` (a tag can point at a commit that never passed CI), pushes
+The release workflow re-runs `task check` (a tag can point at a commit that never passed CI), pushes
 both packages to `ghcr.io/smana`, and attaches `xrd-crds.yaml` — the asset `cloud-native-ref`'s
 `gen-catalog.sh` reads to build its schema catalog.
 
@@ -66,14 +66,14 @@ Reference with examples: [`docs/kcl-authoring.md`](docs/kcl-authoring.md).
 
 The short version: never mutate a dict after creation (it emits the resource twice), keep list
 comprehensions single-line, don't shadow the loop variable in a dict comprehension, and run
-`make check`.
+`task check`.
 
 ## Known gap
 
 No automated security audit of composition output. `cloud-native-ref`'s Polaris gate sees the
 *claims*, not the Deployments Crossplane expands them into, and the retired
 `validate-kcl-compositions.sh` never had a security stage despite the constitution's table. Review
-pod specs by hand. `make render` output is the natural input for closing this.
+pod specs by hand. `task render` output is the natural input for closing this.
 
 ## Installing on a cluster that already has these XRDs
 
