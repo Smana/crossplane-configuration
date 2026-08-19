@@ -11,7 +11,6 @@ permissions:
 # Every gate that exists today runs here. Steps are added as the tasks that
 # introduce them land, rather than written ahead of the targets they call:
 #
-#   Task 6    ->  make build    (assemble + crossplane xpkg build)
 #   Task 7    ->  make crds     (XRD-to-CRD release asset)
 #   Task 8    ->  scripts/check_function_pins.py
 #
@@ -59,3 +58,12 @@ jobs:
       # crossplane render can run the functions.
       - name: Render equivalence against golden fixtures
         run: make render
+
+      - name: Build both packages
+        run: make build
+
+      # A package that builds but still points at an OCI module would defeat the
+      # whole extraction: adopters would need network access to a registry this
+      # repo does not control, at render time.
+      - name: Packages are self-contained
+        run: ./scripts/check_packages.sh
