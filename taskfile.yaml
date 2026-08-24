@@ -1,8 +1,8 @@
 version: "3"
 
 vars:
-  APIS: app sqlinstance kvstore inferenceservice epi
-  PKGS: core aws
+  APIS: app sqlinstance kvstore inferenceservice epi gcpworkloadidentity
+  PKGS: core aws gcp
   # v-prefixed to match the git tag, the OCI tag crossplane expects, and the
   # `>=v0.1.0` constraints in packages/*/crossplane.yaml. The release workflow
   # passes the git tag through verbatim.

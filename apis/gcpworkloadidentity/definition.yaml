@@ -1,0 +1,96 @@
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: gcpworkloadidentities.cloud.ogenki.io
+  labels:
+    provider: gcp
+spec:
+  scope: Namespaced
+  group: cloud.ogenki.io
+  names:
+    kind: GCPWorkloadIdentity
+    plural: gcpworkloadidentities
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-validations:
+            - rule: "self.metadata.name.startsWith('xplane-')"
+              message: "GCPWorkloadIdentity name must be prefixed with 'xplane-' per platform convention"
+          properties:
+            spec:
+              type: object
+              properties:
+                serviceAccount:
+                  type: object
+                  description: The Kubernetes ServiceAccount that receives the identity. No annotation is added to it — GKE Workload Identity binds by subject, not by annotation.
+                  properties:
+                    name:
+                      type: string
+                      description: Name of the Kubernetes ServiceAccount.
+                    namespace:
+                      type: string
+                      description: Namespace of the Kubernetes ServiceAccount.
+                  required:
+                    - name
+                    - namespace
+                roles:
+                  type: array
+                  description: >-
+                    Google IAM roles to grant, in the exact form GCP names them —
+                    either a predefined role ("roles/dns.admin") or a custom role
+                    ("projects/<project>/roles/<role_id>"). The cluster's Crossplane
+                    identity can only grant roles its own IAM Condition allowlists,
+                    so a role outside that list fails at the provider with a message
+                    naming it.
+                  minItems: 1
+                  items:
+                    type: string
+                    pattern: '^(roles/[A-Za-z0-9_.]+|projects/[a-z][a-z0-9-]{4,28}[a-z0-9]/roles/[A-Za-z0-9_.]+)$'
+                projectID:
+                  type: string
+                  description: Google project to bind in. Defaults to the projectID from the gke-environment EnvironmentConfig.
+                managementPolicies:
+                  description: The management policy for the generated bindings.
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - "Delete"
+                      - "Create"
+                      - "Update"
+                      - "LateInitialize"
+                      - "Observe"
+                providerConfigRef:
+                  type: object
+                  description: ProviderConfig Reference (use a ClusterProviderConfig "default" if not specified)
+                  properties:
+                    kind:
+                      description: The kind of the referenced object.
+                      type: string
+                      enum:
+                        - ProviderConfig
+                        - ClusterProviderConfig
+                      default: ClusterProviderConfig
+                    name:
+                      description: The name of the referenced object.
+                      type: string
+              required:
+                - serviceAccount
+                - roles
+            deletionPolicy:
+              type: string
+              description: DeletionPolicy specifies what will happen to the underlying external when this managed resource is deleted - either "Delete" or "Orphan" the external resource.
+            status:
+              type: object
+              properties:
+                member:
+                  description: The principal:// string bound to the granted roles.
+                  type: string
+                observed:
+                  description: Freeform field containing information about the observed status.
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true

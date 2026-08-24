@@ -24,6 +24,7 @@ MODULE = {
     "kvstore": "kvstore",
     "inferenceservice": "inference-service",
     "epi": "eks-pod-identity",
+    "gcpworkloadidentity": "gcp-workload-identity",
 }
 
 

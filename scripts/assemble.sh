@@ -6,7 +6,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 rm -rf build
-mkdir -p build/core/apis build/core/examples build/aws/apis build/aws/examples
+mkdir -p build/core/apis build/core/examples \
+         build/aws/apis build/aws/examples \
+         build/gcp/apis build/gcp/examples
 
 # --- core: the cloud-neutral contracts, plus the one neutral Composition ------
 for api in app sqlinstance kvstore inferenceservice; do
@@ -24,6 +26,12 @@ done
 cp packages/aws/crossplane.yaml build/aws/crossplane.yaml
 cp examples/app-*.yaml examples/sqlinstance-*.yaml examples/inferenceservice-*.yaml \
    examples/epi.yaml examples/environmentconfig.yaml build/aws/examples/
+
+# --- gcp: the GCP contract and its Composition --------------------------------
+cp apis/gcpworkloadidentity/definition.yaml build/gcp/apis/gcpworkloadidentity-definition.yaml
+cp apis/gcpworkloadidentity/composition.yaml build/gcp/apis/gcpworkloadidentity-composition.yaml
+cp packages/gcp/crossplane.yaml build/gcp/crossplane.yaml
+cp examples/gcpworkloadidentity.yaml examples/environmentconfig.yaml build/gcp/examples/
 
 echo "staged:"
 find build -name '*.yaml' | sort | sed 's/^/  /'

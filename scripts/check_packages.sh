@@ -14,15 +14,15 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-declare -A EXPECT_XRD=([core]=4 [aws]=1)
-declare -A EXPECT_COMP=([core]=1 [aws]=4)
+declare -A EXPECT_XRD=([core]=4 [aws]=1 [gcp]=1)
+declare -A EXPECT_COMP=([core]=1 [aws]=4 [gcp]=1)
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "${tmp}"' EXIT
 
-for pkg in core aws; do
+for pkg in core aws gcp; do
     xpkg="build/crossplane-configuration-${pkg}.xpkg"
-    [[ -f "${xpkg}" ]] || { echo "error: ${xpkg} not found — run 'make build'" >&2; exit 1; }
+    [[ -f "${xpkg}" ]] || { echo "error: ${xpkg} not found — run 'task build'" >&2; exit 1; }
 
     dir="${tmp}/${pkg}"
     mkdir -p "${dir}"
@@ -58,4 +58,4 @@ for pkg in core aws; do
 done
 
 echo ""
-echo "==> both packages are self-contained"
+echo "==> all packages are self-contained"
