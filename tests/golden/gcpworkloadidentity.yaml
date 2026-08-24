@@ -1,0 +1,67 @@
+---
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: GCPWorkloadIdentity
+metadata:
+  name: xplane-external-dns
+  namespace: infrastructure
+status:
+  conditions:
+  - lastTransitionTime: "2024-01-01T00:00:00Z"
+    message: 'Unready resources: xplane-external-dns-monitoring-viewer, xplane-external-dns-xplane-dns-editor'
+    reason: Creating
+    status: "False"
+    type: Ready
+---
+apiVersion: cloudplatform.gcp.m.upbound.io/v1beta1
+kind: ProjectIAMMember
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-external-dns-monitoring-viewer
+  labels:
+    crossplane.io/composite: xplane-external-dns
+  name: xplane-external-dns-monitoring-viewer
+  namespace: infrastructure
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: GCPWorkloadIdentity
+    name: xplane-external-dns
+    uid: ""
+spec:
+  forProvider:
+    member: principal://iam.googleapis.com/projects/323586397743/locations/global/workloadIdentityPools/ogenki-435905.svc.id.goog/subject/ns/infrastructure/sa/external-dns
+    project: ogenki-435905
+    role: roles/monitoring.viewer
+  managementPolicies:
+  - Observe
+  providerConfigRef:
+    kind: ClusterProviderConfig
+    name: default
+---
+apiVersion: cloudplatform.gcp.m.upbound.io/v1beta1
+kind: ProjectIAMMember
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-external-dns-xplane-dns-editor
+  labels:
+    crossplane.io/composite: xplane-external-dns
+  name: xplane-external-dns-xplane-dns-editor
+  namespace: infrastructure
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: GCPWorkloadIdentity
+    name: xplane-external-dns
+    uid: ""
+spec:
+  forProvider:
+    member: principal://iam.googleapis.com/projects/323586397743/locations/global/workloadIdentityPools/ogenki-435905.svc.id.goog/subject/ns/infrastructure/sa/external-dns
+    project: ogenki-435905
+    role: projects/ogenki-435905/roles/xplane_dns_editor
+  managementPolicies:
+  - Observe
+  providerConfigRef:
+    kind: ClusterProviderConfig
+    name: default
