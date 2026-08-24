@@ -33,8 +33,6 @@ spec:
     member: principal://iam.googleapis.com/projects/323586397743/locations/global/workloadIdentityPools/ogenki-435905.svc.id.goog/subject/ns/infrastructure/sa/external-dns
     project: ogenki-435905
     role: roles/monitoring.viewer
-  managementPolicies:
-  - Observe
   providerConfigRef:
     kind: ClusterProviderConfig
     name: default
@@ -60,8 +58,6 @@ spec:
     member: principal://iam.googleapis.com/projects/323586397743/locations/global/workloadIdentityPools/ogenki-435905.svc.id.goog/subject/ns/infrastructure/sa/external-dns
     project: ogenki-435905
     role: projects/ogenki-435905/roles/xplane_dns_editor
-  managementPolicies:
-  - Observe
   providerConfigRef:
     kind: ClusterProviderConfig
     name: default

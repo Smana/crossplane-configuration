@@ -17,6 +17,8 @@ spec:
       schema:
         openAPIV3Schema:
           type: object
+          required:
+            - spec
           x-kubernetes-validations:
             - rule: "self.metadata.name.startsWith('xplane-')"
               message: "GCPWorkloadIdentity name must be prefixed with 'xplane-' per platform convention"
@@ -24,19 +26,36 @@ spec:
             spec:
               type: object
               properties:
+                # NO `namespace` field, deliberately — the identity always binds a
+                # ServiceAccount in the CLAIM'S OWN namespace, which the composition
+                # reads from metadata.namespace.
+                #
+                # A settable namespace here would make the XR namespaced but not
+                # namespace-CONFINED: a claim in one namespace could hand another
+                # team's workload a cloud identity, silently, and even before that
+                # ServiceAccount exists. The IAM Condition on the cluster's
+                # Crossplane identity bounds WHICH ROLE may be granted, never TO
+                # WHOM, so nothing downstream would catch it.
+                #
+                # Validating it with CEL is not an option: Kubernetes exposes only
+                # `name` and `generateName` under `self.metadata`, so a rule
+                # comparing against `self.metadata.namespace` fails to compile
+                # ("undefined field 'namespace'"). Deriving it is stronger anyway —
+                # it makes the cross-namespace case unrepresentable rather than
+                # merely rejected.
+                #
+                # This deliberately diverges from EPI, which takes a namespace.
+                # Every EPI claim in cloud-native-ref/security/base/epis/ sets it to
+                # the claim's own namespace regardless.
                 serviceAccount:
                   type: object
-                  description: The Kubernetes ServiceAccount that receives the identity. No annotation is added to it — GKE Workload Identity binds by subject, not by annotation.
+                  description: The Kubernetes ServiceAccount that receives the identity, in this claim's namespace. No annotation is added to it — GKE Workload Identity binds by subject, not by annotation.
                   properties:
                     name:
                       type: string
-                      description: Name of the Kubernetes ServiceAccount.
-                    namespace:
-                      type: string
-                      description: Namespace of the Kubernetes ServiceAccount.
+                      description: Name of the Kubernetes ServiceAccount. Its namespace is the claim's own.
                   required:
                     - name
-                    - namespace
                 roles:
                   type: array
                   description: >-
@@ -51,9 +70,13 @@ spec:
                     IAM Condition allowlists, so a role outside that list fails at
                     the provider with a message naming it.
                   minItems: 1
+                  # The project segment accepts an ID (6-30 chars, GCP's real
+                  # range) or a bare project NUMBER — GCP addresses the same
+                  # project either way, and rejecting the numeric form would be a
+                  # wrong rejection rather than a policy.
                   items:
                     type: string
-                    pattern: '^(roles/[A-Za-z0-9_.]+|projects/[a-z][a-z0-9-]{4,28}[a-z0-9]/roles/[A-Za-z0-9_.]+)$'
+                    pattern: '^(roles/[A-Za-z0-9_.]+|projects/([a-z][a-z0-9-]{4,28}[a-z0-9]|[0-9]{1,20})/roles/[A-Za-z0-9_.]+)$'
                 projectID:
                   type: string
                   description: Google project to bind in. Defaults to the projectID from the gke-environment EnvironmentConfig.

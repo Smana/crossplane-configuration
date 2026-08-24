@@ -19,7 +19,6 @@ kcl_options:
         spec:
           serviceAccount:
             name: external-dns
-            namespace: infrastructure
           roles:
             - "projects/ogenki-435905/roles/xplane_dns_editor"
             - "roles/monitoring.viewer"

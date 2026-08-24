@@ -24,8 +24,7 @@ metadata:
   namespace: infrastructure
 spec:
   serviceAccount:
-    name: external-dns
-    namespace: infrastructure
+    name: external-dns          # always in the claim's own namespace
   roles:
     - projects/ogenki-435905/roles/xplane_dns_editor
 ```
@@ -34,7 +33,7 @@ spec:
 
 | Field | Required | Notes |
 |---|---|---|
-| `serviceAccount.name` / `.namespace` | yes | The KSA that receives the identity |
+| `serviceAccount.name` | yes | The KSA that receives the identity. **No `namespace` field** — see below |
 | `roles` | yes, ≥1 | Exact GCP role names — `roles/<x>` or `projects/<p>/roles/<id>`. Org-level roles are rejected, see below |
 | `projectID` | no | Where the binding lands. Defaults to `gke-environment`'s `projectID` |
 | `managementPolicies` | no | Standard Crossplane management policies |
@@ -42,6 +41,15 @@ spec:
 
 `spec.projectID` overrides only the binding *target*. The identity always comes from the cluster's
 own workload identity pool, which is what makes cross-project grants work at all.
+
+**The ServiceAccount's namespace is the claim's own, and cannot be set.** A settable namespace would
+make the XR namespaced but not namespace-*confined* — a claim in one namespace could hand another
+team's workload a cloud identity, silently, and even before that ServiceAccount exists. The IAM
+Condition on the cluster's Crossplane identity bounds which *role* may be granted, never to *whom*,
+so nothing downstream would catch it. Deriving the namespace makes the case unrepresentable instead
+of merely rejected. (A CEL rule cannot express it: Kubernetes exposes only `name` and `generateName`
+under `self.metadata`.) This diverges from `EPI`, which takes a namespace — though every `EPI` claim
+in the platform sets it to its own namespace anyway.
 
 ## Five things that will bite
 

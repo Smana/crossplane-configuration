@@ -6,11 +6,9 @@ metadata:
 spec:
   serviceAccount:
     name: external-dns
-    namespace: infrastructure
   roles:
     # A pre-created custom role. Custom roles must exist in OpenTofu before a
     # claim can name one — see the module README.
     - "projects/ogenki-435905/roles/xplane_dns_editor"
     # A predefined role, to exercise both name shapes through the slugger.
     - "roles/monitoring.viewer"
-  managementPolicies: ["Observe"]

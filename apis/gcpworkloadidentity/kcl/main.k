@@ -18,9 +18,15 @@ _metadata = lambda suffix: str -> any {
     }
 }
 
-_providerConfigRef = oxr.spec.providerConfigRef or {
-    kind = "ClusterProviderConfig"
-    name = "default"
+# Defaulted FIELD BY FIELD, not as a whole object. A claim setting only
+# `providerConfigRef: {kind: ClusterProviderConfig}` — which is also what CRD
+# defaulting produces from `providerConfigRef: {}` — is truthy, so an
+# `or {kind = ..., name = ...}` on the whole dict never fires and the rendered
+# resource ships a ref with no name. (apis/epi/kcl/main.k has that shape.)
+_pcr = oxr.spec.providerConfigRef or {}
+_providerConfigRef = {
+    kind = _pcr.kind or "ClusterProviderConfig"
+    name = _pcr.name or "default"
 }
 
 # str() is REQUIRED, not defensive. THIS IS THE CANONICAL EXPLANATION -- the
@@ -46,7 +52,10 @@ _projectID = oxr.spec.projectID or envConfig.projectID
 # project ID. Reversed, the GCP API ACCEPTS the binding and it simply never
 # matches -- a permission error that points nowhere. test_member_string_exact
 # pins the whole string for that reason.
-_member = "principal://iam.googleapis.com/projects/" + _projectNumber + "/locations/global/workloadIdentityPools/" + envConfig.workloadPool + "/subject/ns/" + oxr.spec.serviceAccount.namespace + "/sa/" + oxr.spec.serviceAccount.name
+# The subject namespace comes from the CLAIM, never from spec — see the
+# serviceAccount comment in definition.yaml. A claim cannot bind a
+# ServiceAccount outside its own namespace because there is nowhere to say so.
+_member = "principal://iam.googleapis.com/projects/" + _projectNumber + "/locations/global/workloadIdentityPools/" + envConfig.workloadPool + "/subject/ns/" + oxr.metadata.namespace + "/sa/" + oxr.spec.serviceAccount.name
 
 # Role names carry characters that are illegal in a Kubernetes object name, so
 # each one is slugged to build a stable resource name:
@@ -56,8 +65,13 @@ _member = "principal://iam.googleapis.com/projects/" + _projectNumber + "/locati
 # Slugging by CONTENT rather than by list index is deliberate: an index-based
 # name would change when someone reorders spec.roles, and renaming a managed
 # resource is a delete-and-recreate of the live IAM binding.
+# The trailing strip("-") is not cosmetic. GCP permits `_` and `.` at the end of
+# a custom role id, so `projects/p/roles/dns_editor_` would slug to `dns-editor-`
+# and the resource name would end in a dash — which DNS-1123 forbids. The
+# apiserver then rejects the resource with a message naming neither the role nor
+# the slug. Same for a leading separator.
 _slug = lambda role: str -> str {
-    role.split("/")[-1].replace("_", "-").replace(".", "-").lower()
+    role.split("/")[-1].replace("_", "-").replace(".", "-").lower().strip("-")
 }
 
 _slugs = [_slug(role) for role in oxr.spec.roles]

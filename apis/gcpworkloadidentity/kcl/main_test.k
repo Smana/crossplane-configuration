@@ -1,3 +1,5 @@
+import regex
+
 # Tests for the GCP Workload Identity composition
 # Run: kcl test . -Y settings-example.yaml
 
@@ -49,9 +51,35 @@ test_resource_naming = lambda {
 }
 
 # ---- Test: names are valid Kubernetes object names ----
+# Asserts the real DNS-1123 regex, not a hand-picked list of bad characters. The
+# earlier version only rejected `_`, `.` and `/`, so it passed a name ending in a
+# dash — which the apiserver rejects and which GCP can produce, because a custom
+# role id may end in `_` or `.`.
 test_names_are_dns1123 = lambda {
-    _illegal = [r.metadata.name for r in items if "_" in r.metadata.name or "." in r.metadata.name or "/" in r.metadata.name]
-    assert len(_illegal) == 0, "role characters leaked into resource names: {}".format(_illegal)
+    _bad = [r.metadata.name for r in items if not regex.match(r.metadata.name, "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$")]
+    assert len(_bad) == 0, "resource names are not valid DNS-1123: {}".format(_bad)
+    _long = [r.metadata.name for r in items if len(r.metadata.name) > 253]
+    assert len(_long) == 0, "resource names exceed the 253-char limit: {}".format(_long)
+}
+
+# ---- Test: the slugger strips separators GCP allows at the edges ----
+# A role id ending in `_` or `.` becomes a trailing dash without the strip, and
+# the resulting resource is rejected by the apiserver with a message naming
+# neither the role nor the slug.
+test_slug_strips_edge_separators = lambda {
+    assert _slug("projects/p/roles/dns_editor_") == "dns-editor", "trailing separator not stripped: {}".format(_slug("projects/p/roles/dns_editor_"))
+    assert _slug("roles/dns.admin.") == "dns-admin", "trailing dot not stripped: {}".format(_slug("roles/dns.admin."))
+    assert _slug("roles/iam.serviceAccountTokenCreator") == "iam-serviceaccounttokencreator", "camelCase not lowered"
+}
+
+# ---- Test: the subject namespace comes from the claim ----
+# The security invariant. spec has no namespace field, so a claim cannot bind a
+# ServiceAccount outside its own namespace — this asserts the rendered principal
+# actually reflects that rather than picking the namespace up from somewhere else.
+test_subject_namespace_is_the_claims = lambda {
+    _ns = option("params").oxr.metadata.namespace
+    _bad = [r.spec.forProvider.member for r in items if "/subject/ns/" + _ns + "/sa/" not in r.spec.forProvider.member]
+    assert len(_bad) == 0, "subject namespace is not the claim's ({}): {}".format(_ns, _bad)
 }
 
 # ---- Test: the binding target project ----
