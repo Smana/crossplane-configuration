@@ -13,8 +13,9 @@ Compositions**, so installing a package pulls no further artifacts at render tim
 |---|---|
 | `ghcr.io/smana/crossplane-configuration-core` | Cloud-neutral contracts: `App`, `SQLInstance`, `KVStore`, `InferenceService` + the `KVStore` Composition |
 | `ghcr.io/smana/crossplane-configuration-aws` | `EPI` (EKS Pod Identity) + the AWS Compositions for `App`, `SQLInstance`, `InferenceService`, `EPI`. Depends on `-core` |
+| `ghcr.io/smana/crossplane-configuration-gcp` | `GCPWorkloadIdentity` + its Composition. Depends on `-core` |
 
-A GCP package is added when it has content; see the
+Background on the cloud split:
 [dual-cloud design](https://github.com/Smana/cloud-native-ref/blob/main/docs/superpowers/specs/2026-08-18-gcp-support-design.md).
 
 ## APIs
@@ -28,6 +29,7 @@ All in group `cloud.ogenki.io`.
 | `KVStore` | Valkey cache via the official chart |
 | `InferenceService` | Self-hosted LLM inference: vLLM, KEDA autoscaling, Envoy AI Gateway routes |
 | `EPI` | EKS Pod Identity — an IAM role bound to a (namespace, ServiceAccount) pair |
+| `GCPWorkloadIdentity` | GKE Workload Identity — Google IAM roles bound to a (namespace, ServiceAccount) pair, no key and no annotation |
 
 ## Install
 
@@ -56,7 +58,7 @@ git push origin v0.1.0
 
 `.github/workflows/release.yaml` then runs `task check` — the same gates as CI,
 re-run here because a tag can be pushed at any commit, including one that never
-passed — before building, pushing both packages to `ghcr.io/smana`, and creating
+passed — before building, pushing every package to `ghcr.io/smana`, and creating
 the GitHub release with `xrd-crds.yaml` attached.
 
 That asset is what `cloud-native-ref` consumes: its `gen-catalog.sh` reads it via
@@ -68,7 +70,7 @@ Configuration and the schemas its claims are validated against.
 ```bash
 mise install
 task check   # generate-sync + kcl fmt/test + render against golden fixtures
-task build   # produce both .xpkg files
+task build   # produce every .xpkg file
 ```
 
 `apis/<api>/kcl/main.k` is the source of truth. `apis/<api>/composition.yaml` is **generated** by

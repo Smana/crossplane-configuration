@@ -14,15 +14,19 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-declare -A EXPECT_XRD=([core]=4 [aws]=1)
-declare -A EXPECT_COMP=([core]=1 [aws]=4)
+declare -A EXPECT_XRD=([core]=4 [aws]=1 [gcp]=1)
+declare -A EXPECT_COMP=([core]=1 [aws]=4 [gcp]=1)
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "${tmp}"' EXIT
 
-for pkg in core aws; do
+# Iterate the EXPECT keys rather than a second hardcoded list: a package added
+# to taskfile.yaml and assemble.sh but forgotten here would otherwise be SILENTLY
+# unverified — the loop simply never visits it, which is the exact
+# build-exit-0-proves-nothing failure this script exists to catch.
+for pkg in "${!EXPECT_XRD[@]}"; do
     xpkg="build/crossplane-configuration-${pkg}.xpkg"
-    [[ -f "${xpkg}" ]] || { echo "error: ${xpkg} not found — run 'make build'" >&2; exit 1; }
+    [[ -f "${xpkg}" ]] || { echo "error: ${xpkg} not found — run 'task build'" >&2; exit 1; }
 
     dir="${tmp}/${pkg}"
     mkdir -p "${dir}"
@@ -57,5 +61,19 @@ for pkg in core aws; do
     echo "crossplane-configuration-${pkg}: ${xrds} XRD(s), ${comps} Composition(s), no OCI references"
 done
 
+# The reverse gap: a package that gets BUILT but has no EXPECT entry would never
+# be visited by the loop above. Catch it here rather than reporting success over
+# an unverified artifact.
+for xpkg in build/crossplane-configuration-*.xpkg; do
+    [[ -f "${xpkg}" ]] || continue
+    name="${xpkg##*/crossplane-configuration-}"
+    name="${name%.xpkg}"
+    if [[ -z "${EXPECT_XRD[$name]+set}" ]]; then
+        echo "error: ${xpkg} was built but has no EXPECT_XRD/EXPECT_COMP entry —" >&2
+        echo "       it would ship unverified. Add it to this script." >&2
+        exit 1
+    fi
+done
+
 echo ""
-echo "==> both packages are self-contained"
+echo "==> all packages are self-contained"

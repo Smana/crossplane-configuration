@@ -15,3 +15,22 @@ data:
   CIDRBlock: "10.0.0.0/16"
   privateSubnetIds: "subnet-0,subnet-1,subnet-2"
   privateDomainName: "priv.cloud.ogenki.io"
+---
+# The GCP counterpart, read by the GCPWorkloadIdentity Composition.
+#
+# projectNumber is deliberately UNQUOTED, so the fixture matches what Flux
+# actually produces. Full explanation in apis/gcpworkloadidentity/kcl/main.k,
+# at _projectNumber.
+apiVersion: apiextensions.crossplane.io/v1beta1
+kind: EnvironmentConfig
+metadata:
+  name: gke-environment
+data:
+  clusterName: "gcp-mycluster-0"
+  projectID: "ogenki-435905"
+  projectNumber: 323586397743
+  workloadPool: "ogenki-435905.svc.id.goog"
+  region: "europe-west4"
+  zone: "europe-west4-a"
+  networkName: "vpc-mycluster-0"
+  privateDomainName: "priv.gcp.ogenki.io"

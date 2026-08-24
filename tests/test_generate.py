@@ -5,7 +5,12 @@ import sys
 import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-APIS = ["app", "sqlinstance", "kvstore", "inferenceservice", "epi"]
+
+# Enumerated from disk, not hardcoded, so a new API cannot ship untested. It
+# already did once: gcpworkloadidentity was added with a hardcoded list in place
+# and every generator invariant went unasserted for it while CI stayed green.
+# Same reasoning as render_check.py's example discovery.
+APIS = sorted(p.parent.name for p in ROOT.glob("apis/*/composition.yaml"))
 
 
 def _source_of(api: str) -> str:

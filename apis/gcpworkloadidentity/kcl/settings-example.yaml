@@ -1,0 +1,25 @@
+kcl_options:
+  - key: params
+    value:
+      ctx:
+        "apiextensions.crossplane.io/environment":
+          clusterName: "gcp-mycluster-0"
+          projectID: "ogenki-435905"
+          # UNQUOTED on purpose -- see main.k, _projectNumber.
+          projectNumber: 323586397743
+          workloadPool: "ogenki-435905.svc.id.goog"
+          region: "europe-west4"
+          zone: "europe-west4-a"
+          networkName: "vpc-mycluster-0"
+          privateDomainName: "priv.gcp.ogenki.io"
+      oxr:
+        metadata:
+          name: "xplane-external-dns"
+          namespace: "infrastructure"
+        spec:
+          serviceAccount:
+            name: external-dns
+          roles:
+            - "projects/ogenki-435905/roles/xplane_dns_editor"
+            - "roles/monitoring.viewer"
+          managementPolicies: ["Observe"]

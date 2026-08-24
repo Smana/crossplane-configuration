@@ -59,7 +59,7 @@ jobs:
       - name: Render equivalence against golden fixtures
         run: task render
 
-      - name: Build both packages
+      - name: Build all packages
         run: task build
 
       # A package that builds but still points at an OCI module would defeat the

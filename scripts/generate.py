@@ -16,14 +16,18 @@ import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
-# api directory -> KCL module directory name (they differ for three APIs, because
+# api directory -> KCL module directory name (they differ for four APIs, because
 # the modules were named after their implementation and the APIs after their kind).
+#
+# Used only for the log line below, plus an incidental KeyError gate on an
+# unregistered API — main.k is located from comp_path, never from this dict.
 MODULE = {
     "app": "app",
     "sqlinstance": "cloudnativepg",
     "kvstore": "kvstore",
     "inferenceservice": "inference-service",
     "epi": "eks-pod-identity",
+    "gcpworkloadidentity": "gcp-workload-identity",
 }
 
 
