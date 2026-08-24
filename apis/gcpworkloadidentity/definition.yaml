@@ -41,11 +41,15 @@ spec:
                   type: array
                   description: >-
                     Google IAM roles to grant, in the exact form GCP names them —
-                    either a predefined role ("roles/dns.admin") or a custom role
-                    ("projects/<project>/roles/<role_id>"). The cluster's Crossplane
-                    identity can only grant roles its own IAM Condition allowlists,
-                    so a role outside that list fails at the provider with a message
-                    naming it.
+                    either a predefined role ("roles/dns.admin") or a PROJECT-level
+                    custom role ("projects/<project>/roles/<role_id>").
+                    Organization-level custom roles ("organizations/<id>/roles/<id>")
+                    are deliberately NOT accepted: this platform has no org-level
+                    governance and the design lists cross-organisation identity as a
+                    non-goal. Widen the pattern below if that changes.
+                    The cluster's Crossplane identity can only grant roles its own
+                    IAM Condition allowlists, so a role outside that list fails at
+                    the provider with a message naming it.
                   minItems: 1
                   items:
                     type: string
