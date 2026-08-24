@@ -1,14 +1,11 @@
 kcl_options:
   - key: params
     value:
-      ocds: {}
       ctx:
         "apiextensions.crossplane.io/environment":
           clusterName: "gcp-mycluster-0"
           projectID: "ogenki-435905"
-          # UNQUOTED on purpose. Flux substitution produces a bare scalar that
-          # parses as an int, and main.k must str() it. Quoting here would make
-          # the tests pass against a value production never sees.
+          # UNQUOTED on purpose -- see main.k, _projectNumber.
           projectNumber: 323586397743
           workloadPool: "ogenki-435905.svc.id.goog"
           region: "europe-west4"

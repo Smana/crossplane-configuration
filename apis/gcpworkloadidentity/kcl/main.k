@@ -6,15 +6,25 @@
 # annotation on the KSA -- GKE binds by SUBJECT, so the KSA needs no annotation
 # and the pod needs no mounted credential.
 oxr = option("params").oxr
-ocds = option("params").ocds
 envConfig = option("params").ctx["apiextensions.crossplane.io/environment"]
+
+_metadata = lambda suffix: str -> any {
+    {
+        name = oxr.metadata.name + "-" + suffix
+        namespace = oxr.metadata.namespace
+        annotations = {
+            "krm.kcl.dev/composition-resource-name" = oxr.metadata.name + "-" + suffix
+        }
+    }
+}
 
 _providerConfigRef = oxr.spec.providerConfigRef or {
     kind = "ClusterProviderConfig"
     name = "default"
 }
 
-# str() is REQUIRED, not defensive.
+# str() is REQUIRED, not defensive. THIS IS THE CANONICAL EXPLANATION -- the
+# other mentions of it in this API point here rather than restating it.
 #
 # projectNumber reaches the EnvironmentConfig through Flux postBuild
 # substitution, which writes into rendered YAML text. A 12-digit project number
@@ -26,22 +36,21 @@ _providerConfigRef = oxr.spec.providerConfigRef or {
 # this path is exercised by `task render` rather than only in production.
 _projectNumber = str(envConfig.projectNumber)
 
-# The workload identity pool belongs to the project that owns the CLUSTER, and
-# always appears as "<PROJECT_ID>.svc.id.goog". spec.projectID overrides only
-# where the BINDING lands, never which pool the identity comes from -- the two
-# differ when granting access to a project other than the cluster's.
-_workloadPool = envConfig.workloadPool
+# spec.projectID overrides only where the BINDING lands, never which pool the
+# identity comes from -- the two differ when granting access to a project other
+# than the cluster's. The pool always belongs to the cluster's own project and
+# always reads "<PROJECT_ID>.svc.id.goog".
 _projectID = oxr.spec.projectID or envConfig.projectID
 
 # TRAP: `projects/` takes the project NUMBER, `workloadIdentityPools/` takes the
 # project ID. Reversed, the GCP API ACCEPTS the binding and it simply never
-# matches -- a permission error that points nowhere. main_test.k asserts the
-# exact string for that reason.
-_member = "principal://iam.googleapis.com/projects/" + _projectNumber + "/locations/global/workloadIdentityPools/" + _workloadPool + "/subject/ns/" + oxr.spec.serviceAccount.namespace + "/sa/" + oxr.spec.serviceAccount.name
+# matches -- a permission error that points nowhere. test_member_string_exact
+# pins the whole string for that reason.
+_member = "principal://iam.googleapis.com/projects/" + _projectNumber + "/locations/global/workloadIdentityPools/" + envConfig.workloadPool + "/subject/ns/" + oxr.spec.serviceAccount.namespace + "/sa/" + oxr.spec.serviceAccount.name
 
 # Role names carry characters that are illegal in a Kubernetes object name, so
 # each one is slugged to build a stable resource name:
-#   roles/dns.admin                              -> dns-admin
+#   roles/dns.admin                                -> dns-admin
 #   projects/ogenki-435905/roles/xplane_dns_editor -> xplane-dns-editor
 #
 # Slugging by CONTENT rather than by list index is deliberate: an index-based
@@ -55,27 +64,19 @@ _slugs = [_slug(role) for role in oxr.spec.roles]
 _uniqueSlugs = {slug: "" for slug in _slugs}
 
 # Two roles that slug identically would emit two resources with one name, which
-# surfaces as a confusing duplicate-resource error. Fail here with the cause.
-assert len(_uniqueSlugs) == len(_slugs), "spec.roles contains roles whose names collide once normalised: {}. Rename or drop one.".format(_slugs)
+# surfaces as a confusing duplicate-resource error. Fail here with the cause,
+# naming the ROLES the operator has to change rather than the slugs.
+assert len(_uniqueSlugs) == len(_slugs), "spec.roles contains roles whose names collide once normalised: {}. Rename or drop one.".format(oxr.spec.roles)
 
-# The loop variable is `roleName`, NOT `role`, and that is load-bearing.
-#
-# `forProvider = { role = role }` — key and loop variable sharing a name — makes
-# KCL drop the field ENTIRELY. No error, no warning: the rendered
-# ProjectIAMMember simply has no `role`, which is a binding that grants nothing.
-# Measured here, caught by test_roles_passed_through in main_test.k. This is the
-# dict-comprehension shadowing rule in .claude/rules/kcl.md, and it bites in a
-# plain dict literal inside a list comprehension too.
+# Loop variable is `roleName`, NOT `role`: a dict key sharing a name with the
+# enclosing loop variable makes KCL drop the field SILENTLY, yielding a binding
+# that grants nothing. Documented in .claude/rules/kcl.md rule 5 for dict
+# comprehensions -- it bites in a plain dict literal inside a list comprehension
+# too. Guarded by test_roles_passed_through.
 items = [{
     apiVersion = "cloudplatform.gcp.m.upbound.io/v1beta1"
     kind = "ProjectIAMMember"
-    metadata = {
-        name = oxr.metadata.name + "-" + _slug(roleName)
-        namespace = oxr.metadata.namespace
-        annotations = {
-            "krm.kcl.dev/composition-resource-name" = oxr.metadata.name + "-" + _slug(roleName)
-        }
-    }
+    metadata = _metadata(_slug(roleName))
     spec: {
         if oxr.spec.managementPolicies:
             managementPolicies = oxr.spec.managementPolicies

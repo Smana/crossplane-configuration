@@ -50,10 +50,9 @@ own workload identity pool, which is what makes cross-project grants work at all
 `main_test.k` pins the whole principal string rather than checking its shape, because a structural
 assertion cannot catch this.
 
-**2. `projectNumber` arrives as an int.** Flux `postBuild` substitutes into rendered YAML text, so a
-12-digit number becomes a bare scalar. Quoting it in the manifest does not survive — kustomize
-strips quotes it considers unnecessary before Flux ever runs. `main.k` calls `str()`; the example
-EnvironmentConfig leaves the value unquoted so `task render` exercises that path.
+**2. `projectNumber` arrives as an int**, not a string, so `main.k` calls `str()` on it. The example
+EnvironmentConfig leaves it unquoted so `task render` exercises that path. Why quoting cannot fix it
+is explained at `_projectNumber` in `main.k`.
 
 **3. Never `ProjectIAMPolicy` or `ProjectIAMBinding`.** Both are *authoritative* and overwrite the
 project policy for the roles they manage. Rendered once per workload, either deletes other

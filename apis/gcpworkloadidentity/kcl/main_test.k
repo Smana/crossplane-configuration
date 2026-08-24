@@ -31,9 +31,8 @@ test_member_string_exact = lambda {
 }
 
 # ---- Test: projectNumber survives as a string ----
-# The EnvironmentConfig supplies it as an int; str() in main.k is what keeps the
-# principal well-formed. Without it the concatenation fails outright, but this
-# asserts the RESULT rather than the mechanism.
+# Supplied as an int (see main.k, _projectNumber). Asserts the RESULT rather than
+# the mechanism, so it still holds if the conversion moves.
 test_project_number_not_mangled = lambda {
     _members = [r for r in items if r.kind == "ProjectIAMMember"]
     assert "projects/323586397743/" in _members[0].spec.forProvider.member, "project number missing or reformatted in {}".format(_members[0].spec.forProvider.member)

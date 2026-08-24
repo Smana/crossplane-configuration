@@ -18,11 +18,9 @@ data:
 ---
 # The GCP counterpart, read by the GCPWorkloadIdentity Composition.
 #
-# projectNumber is deliberately UNQUOTED. In production this value reaches the
-# EnvironmentConfig through Flux postBuild substitution, which writes into
-# rendered YAML text — a 12-digit number lands as a bare scalar and parses as an
-# int. Quoting it here would make the fixture disagree with production and let a
-# missing str() in main.k pass the render check.
+# projectNumber is deliberately UNQUOTED, so the fixture matches what Flux
+# actually produces. Full explanation in apis/gcpworkloadidentity/kcl/main.k,
+# at _projectNumber.
 apiVersion: apiextensions.crossplane.io/v1beta1
 kind: EnvironmentConfig
 metadata:

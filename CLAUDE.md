@@ -21,18 +21,18 @@ Inlining is the point of this repo: an installed package pulls nothing at render
 | `apis/<api>/composition.yaml` | Composition — **generated** |
 | `apis/<api>/kcl/` | the KCL module (source of truth) |
 | `examples/` | claims, flat — `crossplane xpkg build --examples-root` takes exactly one directory |
-| `packages/{core,aws}/crossplane.yaml` | package metadata and `dependsOn` |
+| `packages/{core,aws,gcp}/crossplane.yaml` | package metadata and `dependsOn` |
 | `tests/golden/` | rendered fixtures captured pre-extraction; render equivalence is diffed against these |
 
-APIs: `App`, `SQLInstance`, `KVStore`, `InferenceService` (core) and `EPI` + the AWS Compositions
-(aws). All in group `cloud.ogenki.io`.
+APIs: `App`, `SQLInstance`, `KVStore`, `InferenceService` (core), `EPI` + the AWS Compositions
+(aws), and `GCPWorkloadIdentity` (gcp). All in group `cloud.ogenki.io`.
 
 ## Commands
 
 ```bash
 mise install
 task check     # generate-sync + kcl fmt/test + XRD schema + render equivalence
-task build     # both .xpkg files
+task build     # every .xpkg file
 task render    # render every example, diff against tests/golden/
 ```
 
@@ -48,7 +48,7 @@ git tag v0.2.0 && git push origin v0.2.0
 ```
 
 The release workflow re-runs `task check` (a tag can point at a commit that never passed CI), pushes
-both packages to `ghcr.io/smana`, and attaches `xrd-crds.yaml` — the asset `cloud-native-ref`'s
+every package to `ghcr.io/smana`, and attaches `xrd-crds.yaml` — the asset `cloud-native-ref`'s
 `gen-catalog.sh` reads to build its schema catalog.
 
 The OCI tag is the git tag verbatim, `v`-prefixed: one spelling for the git tag, the published

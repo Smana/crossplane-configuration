@@ -1,8 +1,15 @@
 version: "3"
 
 vars:
-  APIS: app sqlinstance kvstore inferenceservice epi gcpworkloadidentity
-  PKGS: core aws gcp
+  # Enumerated from disk, not hardcoded. A hardcoded list means a new API or
+  # package is silently skipped by whichever site forgot it — which has already
+  # happened twice in this repo: an example went unrendered upstream, and
+  # gcpworkloadidentity shipped with no generator-test coverage. render_check.py
+  # and validate-schemas.sh already glob; these now match.
+  APIS:
+    sh: ls apis | tr '\n' ' '
+  PKGS:
+    sh: ls packages | tr '\n' ' '
   # v-prefixed to match the git tag, the OCI tag crossplane expects, and the
   # `>=v0.1.0` constraints in packages/*/crossplane.yaml. The release workflow
   # passes the git tag through verbatim.
@@ -64,7 +71,7 @@ tasks:
       - python3 scripts/render_check.py
 
   build:
-    desc: Produce both .xpkg files
+    desc: Produce every .xpkg file
     cmds:
       - task: generate
       - ./scripts/assemble.sh
@@ -91,7 +98,7 @@ tasks:
         silent: true
 
   push:
-    desc: Push both packages to the registry (VERSION=vX.Y.Z)
+    desc: Push every package to the registry (VERSION=vX.Y.Z)
     cmds:
       - for: { var: PKGS }
         cmd: |
