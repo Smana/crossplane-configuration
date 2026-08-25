@@ -8,7 +8,13 @@ with it — the two clouds differ in mechanism, not just in field names (ADR-000
 
 ## What it renders
 
-One `ProjectIAMMember` per role in `spec.roles`. Nothing else.
+One `ProjectIAMMember` per role in `spec.roles`, plus one `StorageBucketIAMMember` per entry in
+`spec.bucketRoles`. Nothing else.
+
+`bucketRoles` exists so storage access can be scoped to a single bucket. Granting
+`roles/storage.objectAdmin` via `spec.roles` would bind it at the *project* level — reaching every
+bucket in the project, including OpenBao's snapshots and CNPG's backups — which is almost never
+what a workload needs.
 
 No Google service account, no exported key, and **no `iam.gke.io/gcp-service-account` annotation on
 the KSA** — GKE binds by *subject*, so the pod authenticates with no mounted credential and the
@@ -27,6 +33,9 @@ spec:
     name: external-dns          # always in the claim's own namespace
   roles:
     - projects/ogenki-435905/roles/xplane_dns_editor
+  bucketRoles:
+    - bucket: my-app-uploads
+      role: roles/storage.objectAdmin
 ```
 
 ## API
@@ -34,10 +43,14 @@ spec:
 | Field | Required | Notes |
 |---|---|---|
 | `serviceAccount.name` | yes | The KSA that receives the identity. **No `namespace` field** — see below |
-| `roles` | yes, ≥1 | Exact GCP role names — `roles/<x>` or `projects/<p>/roles/<id>`. Org-level roles are rejected, see below |
+| `roles` | at least one of `roles` / `bucketRoles` | Exact GCP role names — `roles/<x>` or `projects/<p>/roles/<id>`. Org-level roles are rejected, see below |
+| `bucketRoles` | at least one of `roles` / `bucketRoles` | `{bucket, role}` pairs, bound with `StorageBucketIAMMember` — scoped to that ONE bucket, never the project |
 | `projectID` | no | Where the binding lands. Defaults to `gke-environment`'s `projectID` |
 | `managementPolicies` | no | Standard Crossplane management policies |
 | `providerConfigRef` | no | Defaults to `ClusterProviderConfig/default` |
+
+An identity granting nothing at all — both `roles` and `bucketRoles` empty or omitted — is rejected
+at admission by an `x-kubernetes-validations` rule on `spec`.
 
 `spec.projectID` overrides only the binding *target*. The identity always comes from the cluster's
 own workload identity pool, which is what makes cross-project grants work at all.

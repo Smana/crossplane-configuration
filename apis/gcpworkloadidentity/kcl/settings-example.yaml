@@ -22,4 +22,7 @@ kcl_options:
           roles:
             - "projects/ogenki-435905/roles/xplane_dns_editor"
             - "roles/monitoring.viewer"
+          bucketRoles:
+            - bucket: test-bucket
+              role: roles/storage.objectAdmin
           managementPolicies: ["Observe"]

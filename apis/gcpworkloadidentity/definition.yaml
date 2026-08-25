@@ -25,6 +25,9 @@ spec:
           properties:
             spec:
               type: object
+              x-kubernetes-validations:
+                - rule: "(has(self.roles) && size(self.roles) > 0) || (has(self.bucketRoles) && size(self.bucketRoles) > 0)"
+                  message: "At least one of roles or bucketRoles is required"
               properties:
                 # NO `namespace` field, deliberately — the identity always binds a
                 # ServiceAccount in the CLAIM'S OWN namespace, which the composition
@@ -69,7 +72,7 @@ spec:
                     The cluster's Crossplane identity can only grant roles its own
                     IAM Condition allowlists, so a role outside that list fails at
                     the provider with a message naming it.
-                  minItems: 1
+                  minItems: 0
                   # The project segment accepts an ID (6-30 chars, GCP's real
                   # range) or a bare project NUMBER — GCP addresses the same
                   # project either way, and rejecting the numeric form would be a
@@ -77,6 +80,31 @@ spec:
                   items:
                     type: string
                     pattern: '^(roles/[A-Za-z0-9_.]+|projects/([a-z][a-z0-9-]{4,28}[a-z0-9]|[0-9]{1,20})/roles/[A-Za-z0-9_.]+)$'
+                bucketRoles:
+                  type: array
+                  description: >-
+                    Google IAM roles granted on a SINGLE bucket rather than on the
+                    project. Use this for anything storage-related: a project-level
+                    roles/storage.* grant reaches every bucket in the project,
+                    including OpenBao snapshots and CNPG backups, which is almost
+                    never what a workload needs.
+                    Optional and additive — omitting it leaves behaviour unchanged.
+                  items:
+                    type: object
+                    properties:
+                      bucket:
+                        type: string
+                        description: Bucket name, without a gs:// prefix.
+                        pattern: '^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$'
+                      role:
+                        type: string
+                        description: >-
+                          Predefined or project-level custom role, same forms as
+                          spec.roles.
+                        pattern: '^(roles/[A-Za-z0-9_.]+|projects/([a-z][a-z0-9-]{4,28}[a-z0-9]|[0-9]{1,20})/roles/[A-Za-z0-9_.]+)$'
+                    required:
+                      - bucket
+                      - role
                 projectID:
                   type: string
                   description: Google project to bind in. Defaults to the projectID from the gke-environment EnvironmentConfig.
@@ -107,7 +135,6 @@ spec:
                       type: string
               required:
                 - serviceAccount
-                - roles
             # No `deletionPolicy` and no `status.member`, though EPI declares the
             # equivalents. Nothing in the composition writes either — it is
             # `target: Resources` with no status step — so both would ship inert
