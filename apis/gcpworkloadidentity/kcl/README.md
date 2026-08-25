@@ -8,7 +8,7 @@ with it — the two clouds differ in mechanism, not just in field names (ADR-000
 
 ## What it renders
 
-One `ProjectIAMMember` per role in `spec.roles`, plus one `StorageBucketIAMMember` per entry in
+One `ProjectIAMMember` per role in `spec.roles`, plus one `BucketIAMMember` per entry in
 `spec.bucketRoles`. Nothing else.
 
 `bucketRoles` exists so storage access can be scoped to a single bucket. Granting
@@ -44,7 +44,7 @@ spec:
 |---|---|---|
 | `serviceAccount.name` | yes | The KSA that receives the identity. **No `namespace` field** — see below |
 | `roles` | at least one of `roles` / `bucketRoles` | Exact GCP role names — `roles/<x>` or `projects/<p>/roles/<id>`. Org-level roles are rejected, see below |
-| `bucketRoles` | at least one of `roles` / `bucketRoles` | `{bucket, role}` pairs, bound with `StorageBucketIAMMember` — scoped to that ONE bucket, never the project |
+| `bucketRoles` | at least one of `roles` / `bucketRoles` | `{bucket, role}` pairs, bound with `BucketIAMMember` — scoped to that ONE bucket, never the project |
 | `projectID` | no | Where the binding lands. Defaults to `gke-environment`'s `projectID` |
 | `managementPolicies` | no | Standard Crossplane management policies |
 | `providerConfigRef` | no | Defaults to `ClusterProviderConfig/default` |

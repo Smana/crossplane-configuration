@@ -1,7 +1,8 @@
 # This module grants Google IAM roles to a Kubernetes ServiceAccount using GKE
 # Workload Identity, via the Crossplane GCP provider.
 #
-# It renders one ProjectIAMMember per requested role and nothing else. There is
+# It renders one ProjectIAMMember per requested role in spec.roles, plus one
+# BucketIAMMember per entry in spec.bucketRoles, and nothing else. There is
 # no Google service account, no key, and no `iam.gke.io/gcp-service-account`
 # annotation on the KSA -- GKE binds by SUBJECT, so the KSA needs no annotation
 # and the pod needs no mounted credential.
@@ -114,7 +115,7 @@ _projectMembers = [{
     }
 } for roleName in oxr.spec.roles or []]
 
-# Bucket-scoped bindings. Rendered as StorageBucketIAMMember so the grant
+# Bucket-scoped bindings. Rendered as BucketIAMMember so the grant
 # reaches ONE bucket: a project-level roles/storage.* would reach every bucket
 # in the project, including OpenBao's snapshots and CNPG's backups.
 #
@@ -123,9 +124,19 @@ _projectMembers = [{
 # `_slug` helper used for project roles: the XRD's bucket-name pattern permits
 # `.` and `_` (real GCS buckets are often domain-style, e.g. "assets.corp.com"),
 # neither of which DNS-1123 allows in a Kubernetes object name.
+_bucketSlugs = [_slug(br.role) + "-" + _slug(br.bucket) for br in oxr.spec.bucketRoles or []]
+_uniqueBucketSlugs = {slug: "" for slug in _bucketSlugs}
+
+# Same failure class as the roles collision above: two {bucket, role} pairs
+# that slug identically (e.g. "my.app-data" and "my-app.data", which `_slug`
+# maps onto the same string) emit two resources with one name -- a `crossplane
+# render` fatal error naming the SLUG, not the pairs. Fail here instead, naming
+# the pairs the operator has to change.
+assert len(_uniqueBucketSlugs) == len(_bucketSlugs), "spec.bucketRoles contains bucket/role pairs whose names collide once normalised: {}. Rename or drop one.".format(oxr.spec.bucketRoles or [])
+
 _bucketMembers = [{
     apiVersion = "storage.gcp.m.upbound.io/v1beta1"
-    kind = "StorageBucketIAMMember"
+    kind = "BucketIAMMember"
     metadata = _metadata(_slug(br.role) + "-" + _slug(br.bucket))
     spec: {
         if oxr.spec.managementPolicies:
