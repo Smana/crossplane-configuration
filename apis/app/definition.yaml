@@ -1313,7 +1313,7 @@ spec:
                           default: "15d"
                         bucketName:
                           type: string
-                          description: S3 bucket name for backups
+                          description: The name of the object-storage bucket holding backups
                 objectStore:
                   type: object
                   description: >-
