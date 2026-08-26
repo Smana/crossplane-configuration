@@ -14,8 +14,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# gcp went 1 -> 3 Compositions with the objectStore migration: it now ships the
+# App Composition (GCS buckets, bucket-scoped workload identity) and the
+# SQLInstance stub alongside GCPWorkloadIdentity. Its XRD count stays 1 --
+# GCPWorkloadIdentity is the only contract it owns; App and SQLInstance are
+# cloud-neutral and ship from core.
 declare -A EXPECT_XRD=([core]=4 [aws]=1 [gcp]=1)
-declare -A EXPECT_COMP=([core]=1 [aws]=4 [gcp]=1)
+declare -A EXPECT_COMP=([core]=1 [aws]=4 [gcp]=3)
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "${tmp}"' EXIT
