@@ -14,7 +14,13 @@ spec:
   crossplane:
     version: ">=v2.0.0-0"
   dependsOn:
+    # Floor raised from >=v0.1.0 for the objectStore migration. The App
+    # Composition here reads `oxr.spec.objectStore`, a field that exists only
+    # in core v0.3.0's XRD. A cluster already running core v0.2.0 satisfies
+    # >=v0.1.0, so Crossplane would leave it in place and this Composition
+    # would render against an XRD that still defines s3Bucket -- claims
+    # rejected, with nothing naming the version skew as the cause.
     - configuration: ghcr.io/smana/crossplane-configuration-core
-      version: ">=v0.1.0"
+      version: ">=v0.3.0"
     - function: xpkg.crossplane.io/crossplane-contrib/function-environment-configs
       version: ">=v0.7.2"

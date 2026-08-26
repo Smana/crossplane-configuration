@@ -16,8 +16,11 @@ spec:
     version: ">=v2.0.0-0"
   dependsOn:
     # The cloud-neutral contracts, same as the aws package depends on them.
+    # Floor raised from >=v0.1.0 for the objectStore migration -- same
+    # reasoning as the aws package. This package's App Composition needs
+    # core v0.3.0's XRD, and its SQLInstance stub needs that contract too.
     - configuration: ghcr.io/smana/crossplane-configuration-core
-      version: ">=v0.1.0"
+      version: ">=v0.3.0"
     # Every function the Composition's pipeline names is declared HERE, not
     # inherited. function-kcl and function-auto-ready reach a cluster through
     # -core's own dependsOn today, so this resolves either way — but relying on
