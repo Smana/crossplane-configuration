@@ -44,6 +44,7 @@ kcl_options:
                       reason: ResolvedRefs
       ctx:
         "apiextensions.crossplane.io/environment":
+          cloud: "aws"
           "clusterName": "mycluster-0"
           region: "eu-west-3"
       oxr:
@@ -217,7 +218,7 @@ kcl_options:
             databases:
               - name: "appdb"
                 owner: "myname-user"
-          objectStore: # This creates an S3 but also the lifecycle policies. The bucket encrytion is SSE-S3. the EKS pod identity using the composition  EPI.
+          objectStore: # This creates an S3 bucket and the EKS pod identity using the composition EPI. retentionDays is GCP-only -- no lifecycle policy renders on AWS.
             enabled: true
             permissions: "custom" # readwrite, readonly, custom
             versioning: true

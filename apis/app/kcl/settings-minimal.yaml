@@ -41,5 +41,6 @@ kcl_options:
       ocds: {}
       ctx:
         apiextensions.crossplane.io/environment:
+          cloud: aws
           clusterName: mycluster-0
           region: eu-west-3

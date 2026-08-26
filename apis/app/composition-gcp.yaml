@@ -1113,7 +1113,15 @@ spec:
           # from which EnvironmentConfig fields happen to exist (accountId vs projectID):
           # inference works today and breaks silently the first time either config gains
           # a field.
-          _cloud = envConfig?.cloud or "aws"
+          #
+          # No `or "aws"` fallback: that failed OPEN, to AWS, inside the GCP
+          # Composition too -- a missing or misspelled `cloud` key on gke-environment
+          # would render an s3.aws.m.upbound.io Bucket and an EPI XR whose XRD isn't
+          # even installed on gcp-0, surfacing as an opaque `no matches for kind` at
+          # the provider layer for what is actually a one-line config typo. Both
+          # EnvironmentConfigs set this key, so failing loudly costs nothing.
+          _cloud = envConfig?.cloud
+          assert _cloud in ["aws", "gcp"], "EnvironmentConfig must set cloud: aws|gcp, got {}".format(_cloud)
 
           if oxr.spec.objectStore?.enabled and _cloud == "aws":
               _bucketName = (oxr.spec.objectStore.aws?.region or envConfig.region) + "-ogenki-" + _name

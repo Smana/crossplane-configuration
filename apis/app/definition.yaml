@@ -1341,7 +1341,12 @@ spec:
                       default: false
                     retentionDays:
                       type: integer
-                      description: Object retention in days
+                      description: >-
+                        Object retention in days. Currently GCP-only: renders
+                        a GCS lifecycle rule that deletes objects past this
+                        age. Inert on AWS -- no S3 lifecycle configuration
+                        renders yet, so setting this on an AWS claim has no
+                        effect.
                       minimum: 1
                       maximum: 365
                     aws:
