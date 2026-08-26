@@ -1,9 +1,9 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: xapps.cloud.ogenki.io
+  name: xapps-gcp.cloud.ogenki.io
   labels:
-    provider: aws
+    provider: gcp
 spec:
   compositeTypeRef:
     apiVersion: cloud.ogenki.io/v1alpha1
@@ -20,7 +20,7 @@ spec:
         environmentConfigs:
         - type: Reference
           ref:
-            name: eks-environment
+            name: gke-environment
   - step: app
     functionRef:
       name: function-kcl

@@ -21,8 +21,18 @@ NOT_A_CLAIM = {"environmentconfig.yaml"}
 
 
 def composition_for(kind: str) -> pathlib.Path:
-    """Find the Composition whose compositeTypeRef matches this claim's kind."""
-    for comp in sorted(ROOT.glob("apis/*/composition.yaml")):
+    """Find the Composition whose compositeTypeRef matches this claim's kind.
+
+    An API directory may now ship one Composition per cloud (composition-aws.yaml,
+    composition-gcp.yaml) rather than a single composition.yaml -- see Task 3's
+    build-machinery change. Several files can share the same compositeTypeRef.kind;
+    sorted() picks the alphabetically-first match, which today means "-aws" before
+    "-gcp" for every example claim in examples/ (all AWS-shaped). This is a
+    stand-in, not a real per-cloud selector: it breaks the moment a GCP-shaped
+    example of a kind that also has an AWS Composition is added, at which point
+    this needs an explicit mapping instead of alphabetical luck.
+    """
+    for comp in sorted(ROOT.glob("apis/*/composition*.yaml")):
         doc = yaml.safe_load(comp.read_text())
         if doc["spec"]["compositeTypeRef"]["kind"] == kind:
             return comp
