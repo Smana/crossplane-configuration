@@ -20,16 +20,21 @@ cp examples/kvstore-basic.yaml examples/kvstore-complete.yaml build/core/example
 
 # --- aws: the AWS contract, plus every AWS Composition ------------------------
 cp apis/epi/definition.yaml build/aws/apis/epi-definition.yaml
-for api in app sqlinstance inferenceservice epi; do
+for api in app sqlinstance; do
+  cp "apis/$api/composition-aws.yaml" "build/aws/apis/$api-composition.yaml"
+done
+for api in inferenceservice epi; do
   cp "apis/$api/composition.yaml" "build/aws/apis/$api-composition.yaml"
 done
 cp packages/aws/crossplane.yaml build/aws/crossplane.yaml
 cp examples/app-*.yaml examples/sqlinstance-*.yaml examples/inferenceservice-*.yaml \
    examples/epi.yaml examples/environmentconfig.yaml build/aws/examples/
 
-# --- gcp: the GCP contract and its Composition --------------------------------
+# --- gcp: the GCP contract and its Compositions -------------------------------
 cp apis/gcpworkloadidentity/definition.yaml build/gcp/apis/gcpworkloadidentity-definition.yaml
 cp apis/gcpworkloadidentity/composition.yaml build/gcp/apis/gcpworkloadidentity-composition.yaml
+cp apis/app/composition-gcp.yaml build/gcp/apis/app-composition.yaml
+cp apis/sqlinstance/composition-gcp.yaml build/gcp/apis/sqlinstance-composition.yaml
 cp packages/gcp/crossplane.yaml build/gcp/crossplane.yaml
 cp examples/gcpworkloadidentity.yaml examples/environmentconfig.yaml build/gcp/examples/
 

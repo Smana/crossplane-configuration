@@ -79,7 +79,7 @@ def inline_composition(comp_path: pathlib.Path) -> str:
 
 
 def main() -> int:
-    for comp in sorted(ROOT.glob("apis/*/composition.yaml")):
+    for comp in sorted(ROOT.glob("apis/*/composition*.yaml")):
         module = inline_composition(comp)
         size = comp.stat().st_size
         print(f"{comp.relative_to(ROOT)}  <- apis/{comp.parent.name}/kcl/main.k "
