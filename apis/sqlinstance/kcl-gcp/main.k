@@ -20,5 +20,16 @@
 # the developer asked for -- visible on every plain `kubectl get sqlinstance`
 # via the SYNCED column, carrying this message.
 #
+# It does NOT propagate usefully to the parent App, though -- confirmed
+# against a real Crossplane on an ephemeral kind cluster, not just
+# `crossplane render`. An App composing this stub shows SYNCED=True,
+# READY=False, Reason=Creating, "Unready resources: ...", indefinitely --
+# ordinary-looking provisioning, not "this can never succeed". Root cause is
+# in apis/app/kcl/main.k: the SQLInstance block doesn't read the child's own
+# status via `ocds` the way the Deployment/Service blocks do, so the App
+# never learns the child is Synced=False, only that it isn't Ready yet. Fixing
+# that is out of this stub's scope. The loud signal lives on the SQLInstance
+# itself; check it directly, don't infer from the App's status alone.
+#
 # Delete this file and its Composition when the real one lands.
 assert False, "SQLInstance has no GCP implementation yet (workstream 9 brings CNPG with barman backups to GCS)."
