@@ -1215,7 +1215,15 @@ if oxr.spec.objectStore?.enabled and _cloud == "gcp":
     _gcsName = envConfig.projectID + "-ogenki-" + _name
 
     _gcsBucket = [{
-        apiVersion = "storage.gcp.m.upbound.io/v1beta2"
+        # v1beta1, NOT v1beta2. The schema catalog lists Bucket at both, but
+        # that catalog reflects provider-upjet-gcp v3.0.0 while cloud-native-ref
+        # installs the provider-gcp-storage v2.6.0 family member, whose CRD
+        # serves v1beta1 ONLY. Rendering v1beta2 fails on the cluster with
+        # `no matches for kind "Bucket" in version .../v1beta2` -- checking the
+        # catalog is not enough, the INSTALLED provider version decides.
+        # Field shapes are identical between the two, so this is the apiVersion
+        # alone. BucketIAMMember is v1beta1 in both and was already correct.
+        apiVersion = "storage.gcp.m.upbound.io/v1beta1"
         kind = "Bucket"
         metadata = {
             name = _name + "-gcs-bucket"
