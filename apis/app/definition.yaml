@@ -40,6 +40,8 @@ spec:
                   message: "route.hostname is required when route is enabled"
                 - rule: "!has(self.sqlInstance) || !self.sqlInstance.enabled || !has(self.sqlInstance.backup) || !has(self.sqlInstance.backup.schedule) || has(self.sqlInstance.backup.bucketName)"
                   message: "sqlInstance.backup.bucketName is required when backup schedule is set"
+                - rule: "!has(self.objectStore) || self.objectStore.permissions != 'custom' || (has(self.objectStore.aws) && has(self.objectStore.aws.customPolicy))"
+                  message: "objectStore.aws.customPolicy is required when objectStore.permissions is custom"
                 - rule: "!has(self.type) || self.type != 'cron' || has(self.schedule)"
                   message: "schedule is required when type is 'cron'"
                 - rule: "!has(self.schedule) || (has(self.type) && self.type == 'cron')"
@@ -1327,7 +1329,10 @@ spec:
                       default: false
                     permissions:
                       type: string
-                      description: Access the workload receives on the bucket
+                      description: >-
+                        Access the workload receives on the bucket. "custom" is
+                        AWS-only and requires objectStore.aws.customPolicy; on
+                        GCP the composition degrades it to read-only.
                       enum: ["readwrite", "readonly", "custom"]
                       default: "readwrite"
                     versioning:
@@ -1338,6 +1343,7 @@ spec:
                       type: integer
                       description: Object retention in days
                       minimum: 1
+                      maximum: 365
                     aws:
                       type: object
                       description: >-
