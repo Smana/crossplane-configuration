@@ -60,7 +60,7 @@ spec:
           }
 
           # Managed-resource name for the IAM-bearing resources. Apps that provision AWS
-          # IAM (s3Bucket -> EPI role/policy, sqlInstance -> S3-backup role) must land those
+          # IAM (objectStore -> EPI role/policy, sqlInstance -> S3-backup role) must land those
           # roles inside the provider-aws xplane-* permission boundary
           # (opentofu/eks/init/iam.tf). The COMPOSITION owns that prefix so the developer
           # never types it: a dev names the App `outline`, and the IAM-bearing resources are
@@ -981,7 +981,7 @@ spec:
               # L7 dns matchPattern "*" is mandatory so a developer-added toFQDNs egress
               # rule works (Cilium must see the resolved IPs) - .claude/rules/cilium-network-policies.md.
               toPorts = [{ports = [{port = "53", protocol = "UDP"}, {port = "53", protocol = "TCP"}], rules = {dns = [{matchPattern = "*"}]}}]
-          }] if (oxr.spec.sqlInstance?.enabled or oxr.spec.kvStore?.enabled or oxr.spec.s3Bucket?.enabled) else []
+          }] if (oxr.spec.sqlInstance?.enabled or oxr.spec.kvStore?.enabled or oxr.spec.objectStore?.enabled) else []
           _npDb = [{
               toEndpoints = [{
                   matchLabels = {"cnpg.io/cluster" = _managedName + "-cnpg-cluster"}
@@ -994,7 +994,7 @@ spec:
               }]
               toPorts = [{ports = [{port = "6379", protocol = "TCP"}]}]
           }] if oxr.spec.kvStore?.enabled else []
-          _npS3 = [
+          _npObjectStore = [
               {
                   toEntities = ["host"]
                   toPorts = [{ports = [{port = "80", protocol = "TCP"}]}]
@@ -1003,9 +1003,9 @@ spec:
                   toEntities = ["world"]
                   toPorts = [{ports = [{port = "443", protocol = "TCP"}]}]
               }
-          ] if oxr.spec.s3Bucket?.enabled else []
+          ] if oxr.spec.objectStore?.enabled else []
           # `[]` + user egress == user egress, so a backend-less app is byte-identical.
-          _npEgress = _npDns + _npDb + _npCache + _npS3 + (oxr.spec.networkPolicies?.egress or [])
+          _npEgress = _npDns + _npDb + _npCache + _npObjectStore + (oxr.spec.networkPolicies?.egress or [])
 
           # CiliumNetworkPolicy
           # NOTE: Using intermediate variable to avoid function-kcl duplicate detection bug
@@ -1105,11 +1105,26 @@ spec:
               }]
               _items += _sqlInstanceResource
 
-          # S3 Bucket
+          # Object storage: S3 on AWS, GCS on GCP.
           # NOTE: Using intermediate variable to avoid function-kcl duplicate detection bug
           # See: https://github.com/crossplane-contrib/function-kcl/issues/285
-          if oxr.spec.s3Bucket?.enabled:
-              _bucketName = (oxr.spec.s3Bucket.region or envConfig.region) + "-ogenki-" + _name
+          #
+          # Which cloud this cluster is. Read from an explicit key rather than inferred
+          # from which EnvironmentConfig fields happen to exist (accountId vs projectID):
+          # inference works today and breaks silently the first time either config gains
+          # a field.
+          #
+          # No `or "aws"` fallback: that failed OPEN, to AWS, inside the GCP
+          # Composition too -- a missing or misspelled `cloud` key on gke-environment
+          # would render an s3.aws.m.upbound.io Bucket and an EPI XR whose XRD isn't
+          # even installed on gcp-0, surfacing as an opaque `no matches for kind` at
+          # the provider layer for what is actually a one-line config typo. Both
+          # EnvironmentConfigs set this key, so failing loudly costs nothing.
+          _cloud = envConfig?.cloud
+          assert _cloud in ["aws", "gcp"], "EnvironmentConfig must set cloud: aws|gcp, got {}".format(_cloud)
+
+          if oxr.spec.objectStore?.enabled and _cloud == "aws":
+              _bucketName = (oxr.spec.objectStore.aws?.region or envConfig.region) + "-ogenki-" + _name
               _bucketArn = "arn:aws:s3:::" + _bucketName
 
               _s3Bucket = [
@@ -1126,11 +1141,11 @@ spec:
                       }
                       spec = {
                           providerConfigRef = {
-                              name = oxr.spec.s3Bucket.providerConfigRef?.name or "default"
+                              name = "default"
                               kind = "ClusterProviderConfig"
                           }
                           forProvider = {
-                              region = oxr.spec.s3Bucket.region or envConfig.region
+                              region = oxr.spec.objectStore.aws?.region or envConfig.region
                           }
                       }
                   }
@@ -1144,11 +1159,11 @@ spec:
                   metadata = _metadata("s3-bucket-versioning")
                   spec = {
                       providerConfigRef = {
-                          name = oxr.spec.s3Bucket.providerConfigRef?.name or "default"
+                          name = "default"
                           kind = "ClusterProviderConfig"
                       }
                       forProvider = {
-                          region = oxr.spec.s3Bucket.region or envConfig.region
+                          region = oxr.spec.objectStore.aws?.region or envConfig.region
                           bucketRef = {
                               name = _name + "-s3-bucket"
                           }
@@ -1174,9 +1189,9 @@ spec:
                               name = envConfig.clusterName
                               region = envConfig.region
                           }]
-                          if oxr.spec.s3Bucket.permissions == "custom" and oxr.spec.s3Bucket.customPolicy:
-                              policyDocument = oxr.spec.s3Bucket.customPolicy
-                          elif oxr.spec.s3Bucket.permissions == "readwrite":
+                          if oxr.spec.objectStore.permissions == "custom" and oxr.spec.objectStore.aws?.customPolicy:
+                              policyDocument = oxr.spec.objectStore.aws.customPolicy
+                          elif oxr.spec.objectStore.permissions == "readwrite":
                               policyDocument = """{
                   "Version": "2012-10-17",
                   "Statement": [
@@ -1198,7 +1213,7 @@ spec:
                       }
                   ]
               }"""
-                          elif oxr.spec.s3Bucket.permissions == "readonly":
+                          elif oxr.spec.objectStore.permissions == "readonly":
                               policyDocument = """{
                   "Version": "2012-10-17",
                   "Statement": [
@@ -1221,8 +1236,75 @@ spec:
                       }
                   }
               ]
-              _s3BucketResources = _s3ResourceList(_s3Bucket, _s3BucketVersioning, _s3Epi, oxr.spec.s3Bucket.versioning or False)
+              _s3BucketResources = _s3ResourceList(_s3Bucket, _s3BucketVersioning, _s3Epi, oxr.spec.objectStore.versioning or False)
               _items += _s3BucketResources
+
+          if oxr.spec.objectStore?.enabled and _cloud == "gcp":
+              # GCS bucket names are globally unique across ALL of GCP, not per-account
+              # like S3. The project ID is itself globally unique, so prefixing with it
+              # guarantees uniqueness while keeping the same <scope>-ogenki-<app> shape
+              # the AWS branch uses with its region.
+              _gcsName = envConfig.projectID + "-ogenki-" + _name
+
+              _gcsBucket = [{
+                  apiVersion = "storage.gcp.m.upbound.io/v1beta2"
+                  kind = "Bucket"
+                  metadata = {
+                      name = _name + "-gcs-bucket"
+                      namespace = _namespace
+                      annotations = {
+                          "krm.kcl.dev/composition-resource-name" = _name + "-gcs-bucket"
+                          "crossplane.io/external-name" = _gcsName
+                      }
+                  }
+                  spec = {
+                      providerConfigRef = {
+                          name = "default"
+                          kind = "ClusterProviderConfig"
+                      }
+                      forProvider = {
+                          location = oxr.spec.objectStore.gcp?.location or envConfig.region
+                          storageClass = oxr.spec.objectStore.gcp?.storageClass or "STANDARD"
+                          # Unlike S3, versioning is a single block on the bucket itself
+                          # (spec.forProvider.versioning is an object, not a list, on
+                          # this provider version) rather than a separate resource -- so
+                          # there is no second resource to conditionally append, and no
+                          # function-kcl #285 hazard here.
+                          versioning = {enabled = oxr.spec.objectStore.versioning or False}
+                          uniformBucketLevelAccess = True
+                          if oxr.spec.objectStore.retentionDays:
+                              lifecycleRule = [{
+                                  action = {type = "Delete"}
+                                  condition = {age = oxr.spec.objectStore.retentionDays}
+                              }]
+                      }
+                  }
+              }]
+
+              # Bucket-SCOPED, never project-scoped: see the bucketRoles rationale in
+              # apis/gcpworkloadidentity/definition.yaml.
+              #
+              # permissions: "custom" has no GCP meaning -- a custom IAM *policy* is AWS
+              # JSON (objectStore.aws.customPolicy), and the enum's own description says
+              # "custom" degrades to read-only on GCP. Implement that here explicitly
+              # rather than let "custom" silently fall through to a write grant: only
+              # "readwrite" gets objectAdmin, every other value (including "custom" and
+              # "readonly") gets objectViewer.
+              _gcsIdentity = [{
+                  apiVersion = "cloud.ogenki.io/v1alpha1"
+                  kind = "GCPWorkloadIdentity"
+                  metadata = _managedMetadata("gcs-workload-identity")
+                  spec = {
+                      serviceAccount = {name = _name}
+                      roles = []
+                      bucketRoles = [{
+                          bucket = _gcsName
+                          role = "roles/storage.objectAdmin" if oxr.spec.objectStore.permissions == "readwrite" else "roles/storage.objectViewer"
+                      }]
+                  }
+              }]
+
+              _items += _gcsBucket + _gcsIdentity
 
           # External Secrets
           # Create ExternalSecrets from AWS Secrets Manager using dataFrom pattern

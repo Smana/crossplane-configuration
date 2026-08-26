@@ -40,6 +40,8 @@ spec:
                   message: "route.hostname is required when route is enabled"
                 - rule: "!has(self.sqlInstance) || !self.sqlInstance.enabled || !has(self.sqlInstance.backup) || !has(self.sqlInstance.backup.schedule) || has(self.sqlInstance.backup.bucketName)"
                   message: "sqlInstance.backup.bucketName is required when backup schedule is set"
+                - rule: "!has(self.objectStore) || self.objectStore.permissions != 'custom' || (has(self.objectStore.aws) && has(self.objectStore.aws.customPolicy))"
+                  message: "objectStore.aws.customPolicy is required when objectStore.permissions is custom"
                 - rule: "!has(self.type) || self.type != 'cron' || has(self.schedule)"
                   message: "schedule is required when type is 'cron'"
                 - rule: "!has(self.schedule) || (has(self.type) && self.type == 'cron')"
@@ -1313,49 +1315,69 @@ spec:
                           default: "15d"
                         bucketName:
                           type: string
-                          description: S3 bucket name for backups
-                s3Bucket:
+                          description: The name of the object-storage bucket holding backups
+                objectStore:
                   type: object
-                  description: S3 bucket configuration
+                  description: >-
+                    Object storage bucket, implemented per cloud: S3 on AWS, GCS
+                    on GCP. The bucket's name and location are owned by the
+                    platform — a claim states what it needs, not where it lands.
                   properties:
                     enabled:
                       type: boolean
-                      description: Enable S3 bucket
+                      description: Enable the bucket
                       default: false
-                    providerConfigRef:
-                      type: object
-                      description: Provider configuration reference
-                      properties:
-                        name:
-                          type: string
-                          description: Provider config name
-                        namespace:
-                          type: string
-                          description: Provider config namespace
-                      required:
-                        - name
-                        - namespace
-                    region:
-                      type: string
-                      description: AWS region
-                      pattern: "^[a-z]+-[a-z]+-[0-9]+$"
                     permissions:
                       type: string
-                      description: Bucket permissions
+                      description: >-
+                        Access the workload receives on the bucket. "custom" is
+                        AWS-only and requires objectStore.aws.customPolicy; on
+                        GCP the composition degrades it to read-only.
                       enum: ["readwrite", "readonly", "custom"]
                       default: "readwrite"
-                    customPolicy:
-                      type: string
-                      description: Custom IAM policy JSON (when permissions is custom)
                     versioning:
                       type: boolean
-                      description: Enable bucket versioning
+                      description: Keep non-current object versions
                       default: false
                     retentionDays:
                       type: integer
-                      description: Object retention days
+                      description: >-
+                        Object retention in days. Currently GCP-only: renders
+                        a GCS lifecycle rule that deletes objects past this
+                        age. Inert on AWS -- no S3 lifecycle configuration
+                        renders yet, so setting this on an AWS claim has no
+                        effect.
                       minimum: 1
                       maximum: 365
+                    aws:
+                      type: object
+                      description: >-
+                        AWS-only knobs, ignored on other clouds. Present because
+                        these have no honest neutral form — not as a general
+                        escape hatch.
+                      properties:
+                        customPolicy:
+                          type: string
+                          description: IAM policy JSON, used when permissions is custom
+                        region:
+                          type: string
+                          description: >-
+                            Overrides the cluster's own region. Rarely needed; the
+                            EnvironmentConfig supplies it.
+                          pattern: "^[a-z]+-[a-z]+-[0-9]+$"
+                    gcp:
+                      type: object
+                      description: GCP-only knobs, ignored on other clouds.
+                      properties:
+                        location:
+                          type: string
+                          description: >-
+                            Overrides the cluster's own region. Rarely needed; the
+                            EnvironmentConfig supplies it.
+                        storageClass:
+                          type: string
+                          enum: ["STANDARD", "NEARLINE", "COLDLINE", "ARCHIVE"]
+                          default: "STANDARD"
                 # External Secrets configuration
                 externalSecrets:
                   type: array

@@ -1,0 +1,38 @@
+---
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: GCPWorkloadIdentity
+metadata:
+  name: xplane-uploader
+  namespace: apps
+status:
+  conditions:
+  - lastTransitionTime: "2024-01-01T00:00:00Z"
+    message: 'Unready resources: xplane-uploader-storage-objectadmin-ogenki-uploads'
+    reason: Creating
+    status: "False"
+    type: Ready
+---
+apiVersion: storage.gcp.m.upbound.io/v1beta1
+kind: BucketIAMMember
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-uploader-storage-objectadmin-ogenki-uploads
+  labels:
+    crossplane.io/composite: xplane-uploader
+  name: xplane-uploader-storage-objectadmin-ogenki-uploads
+  namespace: apps
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: GCPWorkloadIdentity
+    name: xplane-uploader
+    uid: ""
+spec:
+  forProvider:
+    bucket: ogenki-uploads
+    member: principal://iam.googleapis.com/projects/323586397743/locations/global/workloadIdentityPools/ogenki-435905.svc.id.goog/subject/ns/apps/sa/uploader
+    role: roles/storage.objectAdmin
+  providerConfigRef:
+    kind: ClusterProviderConfig
+    name: default

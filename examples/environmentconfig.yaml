@@ -5,6 +5,7 @@ kind: EnvironmentConfig
 metadata:
   name: eks-environment
 data:
+  cloud: "aws"
   clusterName: "mycluster-0"
   oidcUrl: "https://oidc.eks.eu-west-3.amazonaws.com/id/foobar"
   oidcHost: "oidc.eks.eu-west-3.amazonaws.com"
@@ -26,6 +27,7 @@ kind: EnvironmentConfig
 metadata:
   name: gke-environment
 data:
+  cloud: "gcp"
   clusterName: "gcp-mycluster-0"
   projectID: "ogenki-435905"
   projectNumber: 323586397743

@@ -31,7 +31,8 @@ spec:
           # This module grants Google IAM roles to a Kubernetes ServiceAccount using GKE
           # Workload Identity, via the Crossplane GCP provider.
           #
-          # It renders one ProjectIAMMember per requested role and nothing else. There is
+          # It renders one ProjectIAMMember per requested role in spec.roles, plus one
+          # BucketIAMMember per entry in spec.bucketRoles, and nothing else. There is
           # no Google service account, no key, and no `iam.gke.io/gcp-service-account`
           # annotation on the KSA -- GKE binds by SUBJECT, so the KSA needs no annotation
           # and the pod needs no mounted credential.
@@ -87,6 +88,17 @@ spec:
           # ServiceAccount outside its own namespace because there is nowhere to say so.
           _member = "principal://iam.googleapis.com/projects/" + _projectNumber + "/locations/global/workloadIdentityPools/" + envConfig.workloadPool + "/subject/ns/" + oxr.metadata.namespace + "/sa/" + oxr.spec.serviceAccount.name
 
+          # Defense in depth. The XRD's x-kubernetes-validations rule is the real
+          # enforcement point -- an identity granting nothing is rejected at admission,
+          # before this composition ever runs. This mirrors the SAME predicate so a
+          # direct `crossplane render` invocation (which bypasses admission) fails the
+          # same way instead of silently producing an XR with no resources.
+          _hasAnyGrant = lambda roles: [str], bucketRoles: [any] -> bool {
+              len(roles) > 0 or len(bucketRoles) > 0
+          }
+
+          assert _hasAnyGrant(oxr.spec.roles or [], oxr.spec.bucketRoles or []), "spec must set at least one of roles or bucketRoles -- an identity granting nothing is not valid"
+
           # Role names carry characters that are illegal in a Kubernetes object name, so
           # each one is slugged to build a stable resource name:
           #   roles/dns.admin                                -> dns-admin
@@ -104,20 +116,20 @@ spec:
               role.split("/")[-1].replace("_", "-").replace(".", "-").lower().strip("-")
           }
 
-          _slugs = [_slug(role) for role in oxr.spec.roles]
+          _slugs = [_slug(role) for role in oxr.spec.roles or []]
           _uniqueSlugs = {slug: "" for slug in _slugs}
 
           # Two roles that slug identically would emit two resources with one name, which
           # surfaces as a confusing duplicate-resource error. Fail here with the cause,
           # naming the ROLES the operator has to change rather than the slugs.
-          assert len(_uniqueSlugs) == len(_slugs), "spec.roles contains roles whose names collide once normalised: {}. Rename or drop one.".format(oxr.spec.roles)
+          assert len(_uniqueSlugs) == len(_slugs), "spec.roles contains roles whose names collide once normalised: {}. Rename or drop one.".format(oxr.spec.roles or [])
 
           # Loop variable is `roleName`, NOT `role`: a dict key sharing a name with the
           # enclosing loop variable makes KCL drop the field SILENTLY, yielding a binding
           # that grants nothing. Documented in .claude/rules/kcl.md rule 5 for dict
           # comprehensions -- it bites in a plain dict literal inside a list comprehension
           # too. Guarded by test_roles_passed_through.
-          items = [{
+          _projectMembers = [{
               apiVersion = "cloudplatform.gcp.m.upbound.io/v1beta1"
               kind = "ProjectIAMMember"
               metadata = _metadata(_slug(roleName))
@@ -131,7 +143,44 @@ spec:
                       member = _member
                   }
               }
-          } for roleName in oxr.spec.roles]
+          } for roleName in oxr.spec.roles or []]
+
+          # Bucket-scoped bindings. Rendered as BucketIAMMember so the grant
+          # reaches ONE bucket: a project-level roles/storage.* would reach every bucket
+          # in the project, including OpenBao's snapshots and CNPG's backups.
+          #
+          # `_member` is reused verbatim rather than rebuilt -- see the comment on its
+          # definition above. Both the bucket and the role are slugged through the same
+          # `_slug` helper used for project roles: the XRD's bucket-name pattern permits
+          # `.` and `_` (real GCS buckets are often domain-style, e.g. "assets.corp.com"),
+          # neither of which DNS-1123 allows in a Kubernetes object name.
+          _bucketSlugs = [_slug(br.role) + "-" + _slug(br.bucket) for br in oxr.spec.bucketRoles or []]
+          _uniqueBucketSlugs = {slug: "" for slug in _bucketSlugs}
+
+          # Same failure class as the roles collision above: two {bucket, role} pairs
+          # that slug identically (e.g. "my.app-data" and "my-app.data", which `_slug`
+          # maps onto the same string) emit two resources with one name -- a `crossplane
+          # render` fatal error naming the SLUG, not the pairs. Fail here instead, naming
+          # the pairs the operator has to change.
+          assert len(_uniqueBucketSlugs) == len(_bucketSlugs), "spec.bucketRoles contains bucket/role pairs whose names collide once normalised: {}. Rename or drop one.".format(oxr.spec.bucketRoles or [])
+
+          _bucketMembers = [{
+              apiVersion = "storage.gcp.m.upbound.io/v1beta1"
+              kind = "BucketIAMMember"
+              metadata = _metadata(_slug(br.role) + "-" + _slug(br.bucket))
+              spec: {
+                  if oxr.spec.managementPolicies:
+                      managementPolicies = oxr.spec.managementPolicies
+                  providerConfigRef = _providerConfigRef
+                  forProvider = {
+                      bucket = br.bucket
+                      role = br.role
+                      member = _member
+                  }
+              }
+          } for br in oxr.spec.bucketRoles or []]
+
+          items = _projectMembers + _bucketMembers
   - step: ready
     functionRef:
       name: function-auto-ready

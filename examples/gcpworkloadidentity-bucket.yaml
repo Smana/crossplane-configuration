@@ -1,0 +1,16 @@
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: GCPWorkloadIdentity
+metadata:
+  name: xplane-uploader
+  namespace: apps
+spec:
+  serviceAccount:
+    name: uploader
+  # No `roles` at all -- this is the bucket-scoped-only shape a later task
+  # (an App that needs storage access and nothing else) depends on. Exercises
+  # the XRD's "at least one of roles / bucketRoles" rule from the accepted
+  # side, and pins that the composition renders BucketIAMMember with no
+  # ProjectIAMMember alongside it.
+  bucketRoles:
+    - bucket: ogenki-uploads
+      role: roles/storage.objectAdmin

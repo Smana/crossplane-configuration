@@ -1,0 +1,24 @@
+# A deliberate dead-end. See apis/sqlinstance/kcl-gcp/main.k for why this
+# fails the KCL evaluation outright rather than composing zero resources.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: xsqlinstances-gcp.cloud.ogenki.io
+  labels:
+    provider: gcp
+spec:
+  compositeTypeRef:
+    apiVersion: cloud.ogenki.io/v1alpha1
+    kind: SQLInstance
+  mode: Pipeline
+  pipeline:
+    - step: not-implemented
+      functionRef:
+        name: function-kcl
+      input:
+        apiVersion: krm.kcl.dev/v1alpha1
+        kind: KCLRun
+        spec:
+          target: Default
+          source: |
+            assert False, "SQLInstance has no GCP implementation yet (workstream 9 brings CNPG with barman backups to GCS)."

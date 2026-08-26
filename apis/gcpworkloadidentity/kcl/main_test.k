@@ -7,8 +7,9 @@ import regex
 test_one_binding_per_role = lambda {
     _roles = option("params").oxr.spec.roles
     _members = [r for r in items if r.kind == "ProjectIAMMember"]
+    _bucketMembers = [r for r in items if r.kind == "BucketIAMMember"]
     assert len(_members) == len(_roles), "expected one ProjectIAMMember per role, got {} for {} roles".format(len(_members), len(_roles))
-    assert len(items) == len(_members), "composition must render ProjectIAMMember and nothing else"
+    assert len(items) == len(_members) + len(_bucketMembers), "composition must render only ProjectIAMMember and BucketIAMMember"
 }
 
 # ---- Test: additive IAM only ----
@@ -83,10 +84,13 @@ test_subject_namespace_is_the_claims = lambda {
 }
 
 # ---- Test: the binding target project ----
+# ProjectIAMMember-specific: BucketIAMMember scopes to a bucket, not a
+# project, and its forProvider has no `project` field at all.
 test_project_set = lambda {
     _env = option("params").ctx["apiextensions.crossplane.io/environment"]
     _want = option("params").oxr.spec.projectID or _env.projectID
-    _bad = [r.metadata.name for r in items if r.spec.forProvider.project != _want]
+    _members = [r for r in items if r.kind == "ProjectIAMMember"]
+    _bad = [r.metadata.name for r in _members if r.spec.forProvider.project != _want]
     assert len(_bad) == 0, "resources bound to the wrong project: {}".format(_bad)
 }
 
@@ -112,9 +116,13 @@ test_management_policies = lambda {
     assert len(_bad) == 0, "resources missing managementPolicies: {}".format(_bad)
 }
 
-# ---- Test: apiVersion ----
+# ---- Test: apiVersion, per kind ----
 test_api_versions = lambda {
-    _bad = [r.kind for r in items if r.apiVersion != "cloudplatform.gcp.m.upbound.io/v1beta1"]
+    _wantApiVersion = {
+        "ProjectIAMMember" = "cloudplatform.gcp.m.upbound.io/v1beta1"
+        "BucketIAMMember" = "storage.gcp.m.upbound.io/v1beta1"
+    }
+    _bad = [r.kind for r in items if r.apiVersion != _wantApiVersion[r.kind]]
     assert len(_bad) == 0, "resources with wrong apiVersion: {}".format(_bad)
 }
 
@@ -125,4 +133,51 @@ test_namespaced = lambda {
     _ns = option("params").oxr.metadata.namespace
     _bad = [r.metadata.name for r in items if r.metadata.namespace != _ns]
     assert len(_bad) == 0, "resources not in the claim's namespace: {}".format(_bad)
+}
+
+# ---- Test: bucketRoles render BucketIAMMember, not ProjectIAMMember ----
+test_bucket_roles_are_bucket_scoped = lambda {
+    bucketMembers = [r for r in items if r.kind == "BucketIAMMember"]
+    assert len(bucketMembers) == 1, "expected 1 BucketIAMMember, got {}".format(len(bucketMembers))
+    m = bucketMembers[0]
+    assert m.spec.forProvider.bucket == "test-bucket", "expected bucket test-bucket, got {}".format(m.spec.forProvider.bucket)
+    assert m.spec.forProvider.role == "roles/storage.objectAdmin", "expected roles/storage.objectAdmin, got {}".format(m.spec.forProvider.role)
+}
+
+# ---- Test: the bucket member binds the SAME principal as the project members ----
+# A second construction of the principal:// string is exactly the drift this
+# contract exists to prevent, so assert both kinds agree.
+test_bucket_role_member_matches_project_member = lambda {
+    bucketMembers = [r for r in items if r.kind == "BucketIAMMember"]
+    projectMembers = [r for r in items if r.kind == "ProjectIAMMember"]
+    assert bucketMembers[0].spec.forProvider.member == projectMembers[0].spec.forProvider.member, "bucket and project bindings must name the same principal"
+}
+
+# NOTE: there used to be a test_bucket_roles_optional here ("omitting
+# bucketRoles changes nothing"). It asserted only len(projectMembers) >= 1 --
+# a strictly weaker duplicate of test_one_binding_per_role -- because
+# settings-example.yaml is the ONE fixture every test in this file shares, and
+# it sets both roles and bucketRoles. A kcl-test lambda cannot exercise "the
+# other field is absent" against that shared fixture without contradicting
+# every other test that relies on it.
+#
+# The claim it was trying to make -- that either field is independently
+# optional -- is instead pinned where it can be made for real: two example
+# claims rendered through the actual composition pipeline.
+# examples/gcpworkloadidentity.yaml has no bucketRoles; the bucket-only
+# examples/gcpworkloadidentity-bucket.yaml has no roles at all. Both pass
+# `task schema` and `task render` with a golden fixture, which is the stronger
+# claim ("this shape renders correctly end-to-end") rather than the weaker one
+# ("some ProjectIAMMember exists in a fixture that always sets roles").
+
+# ---- Test: a claim granting nothing is invalid ----
+# The XRD's x-kubernetes-validations rule is the real enforcement point (an
+# identity that grants nothing is rejected at admission, before this
+# composition ever runs). This exercises the SAME predicate the module asserts
+# on, in isolation, so a change to one without the other is caught here rather
+# than only against a live cluster.
+test_empty_roles_and_bucket_roles_is_invalid = lambda {
+    assert not _hasAnyGrant([], []), "roles=[] and bucketRoles=[] must be treated as invalid"
+    assert _hasAnyGrant(["roles/monitoring.viewer"], []), "a non-empty roles list alone must be valid"
+    assert _hasAnyGrant([], [{bucket = "test-bucket", role = "roles/storage.objectAdmin"}]), "a non-empty bucketRoles list alone must be valid"
 }

@@ -68,7 +68,7 @@ test_managed_name_prefix = lambda {
         sql = [r for r in items if r.kind == "SQLInstance"][0]
         assert sql.metadata.name == _mn, "SQLInstance must use the managed xplane-* name, got {}".format(sql.metadata.name)
 
-    if _oxr.spec.s3Bucket?.enabled:
+    if _oxr.spec.objectStore?.enabled:
         epi = [r for r in items if r.kind == "EPI"][0]
         assert epi.metadata.name == _mn + "-s3-pod-identity", "EPI must use the managed name, got {}".format(epi.metadata.name)
         bucket = [r for r in items if r.kind == "Bucket"][0]
@@ -203,12 +203,12 @@ test_sql_instance = lambda {
     assert True
 }
 
-# ---- Test: S3 Bucket creates Bucket + EPI ----
+# ---- Test: objectStore creates Bucket + EPI (AWS fixture: S3) ----
 test_s3_bucket = lambda {
     _oxr = option("params").oxr
     buckets = [r for r in items if r.kind == "Bucket"]
     epis = [r for r in items if r.kind == "EPI"]
-    if _oxr.spec.s3Bucket?.enabled:
+    if _oxr.spec.objectStore?.enabled:
         assert len(buckets) == 1, "expected 1 S3 Bucket"
         assert len(epis) == 1, "expected 1 EPI for S3 access"
     else:
@@ -487,10 +487,49 @@ test_s3_resources_never_duplicate = lambda {
 # End-to-end guard on the fixture (versioning=true). Crossplane keys composed
 # resources by that annotation, so a repeat is a hard render failure, not a warning.
 test_s3_items_unique_names = lambda {
-    if option("params").oxr.spec.s3Bucket?.enabled:
+    if option("params").oxr.spec.objectStore?.enabled:
         _names = [r.metadata.annotations["krm.kcl.dev/composition-resource-name"] for r in items if r.kind in ["Bucket", "BucketVersioning", "EPI"]]
         _uniq = {n: 1 for n in _names}
         assert len(_names) == len(_uniq), "duplicate composition-resource-name among s3 resources: {}".format(_names)
 
     assert True
+}
+
+# ---- Test: the AWS branch renders S3, not GCS ----
+# DISCRIMINATE BY apiVersion, NOT BY kind. Both providers name the resource
+# `Bucket` -- s3.aws.m.upbound.io/v1beta1 and storage.gcp.m.upbound.io/v1beta2 --
+# so `r.kind == "Bucket"` matches BOTH clouds and this test would pass while
+# rendering the wrong one.
+test_objectstore_aws_branch = lambda {
+    s3Buckets = [r for r in items if r.kind == "Bucket" and r.apiVersion.startswith("s3.aws")]
+    gcsBuckets = [r for r in items if r.kind == "Bucket" and r.apiVersion.startswith("storage.gcp")]
+    epis = [r for r in items if r.kind == "EPI"]
+    assert len(s3Buckets) == 1, "expected 1 S3 Bucket, got {}".format(len(s3Buckets))
+    assert len(gcsBuckets) == 0, "AWS branch must not render a GCS Bucket"
+    assert len(epis) == 1, "expected 1 EPI, got {}".format(len(epis))
+}
+
+# ---- Test: the bucket location comes from the environment, not the claim ----
+# The claim has no region field at all now; this asserts the composition
+# actually falls back to the EnvironmentConfig rather than rendering an empty
+# prefix, which would produce the bucket name "-ogenki-<app>".
+test_objectstore_location_from_environment = lambda {
+    bucket = [r for r in items if r.kind == "Bucket" and r.apiVersion.startswith("s3.aws")][0]
+    _env = option("params").ctx["apiextensions.crossplane.io/environment"]
+    _expected = _env.region + "-ogenki-" + option("params").oxr.metadata.name
+    assert bucket.metadata.annotations["crossplane.io/external-name"] == _expected, "expected bucket {}, got {}".format(_expected, bucket.metadata.annotations["crossplane.io/external-name"])
+}
+
+# ---- Test: versioning off renders no versioning resource and no duplicates ----
+# function-kcl #285: the pre-migration code emitted the Bucket and the EPI TWICE
+# when versioning was off. Kept as a regression test across the rename.
+#
+# Discriminate by (kind, name), NOT by name alone: many different kinds
+# legitimately share the app's plain name by design (Deployment, Service,
+# ServiceAccount, CiliumNetworkPolicy, ...) -- see test_managed_name_prefix.
+# A bare-name check would fail on every fixture regardless of whether the S3
+# set is actually duplicated, which is not what this regression test is for.
+test_objectstore_no_duplicates_versioning_off = lambda {
+    names = [r.kind + "/" + r.metadata.name for r in items]
+    assert len(names) == len({n: None for n in names}), "duplicate composed-resource (kind/name): {}".format(names)
 }

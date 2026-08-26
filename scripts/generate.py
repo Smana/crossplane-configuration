@@ -31,6 +31,15 @@ MODULE = {
 }
 
 
+# Composition manifests carrying their own literal `source`, never touched by
+# the inliner. apis/sqlinstance/composition-gcp.yaml is a deliberate stub
+# (apis/sqlinstance/kcl-gcp/main.k, deleted by workstream 9) that shares its
+# directory with the AWS Composition's kcl/main.k -- without this skip, the
+# glob below would find that sibling module and silently overwrite the stub's
+# nine-line dead-end with the 34KB AWS SQLInstance module, exit 0, no error.
+SKIP_INLINE = {"apis/sqlinstance/composition-gcp.yaml"}
+
+
 class Literal(str):
     """A str that PyYAML emits as a `|` block scalar."""
 
@@ -79,7 +88,10 @@ def inline_composition(comp_path: pathlib.Path) -> str:
 
 
 def main() -> int:
-    for comp in sorted(ROOT.glob("apis/*/composition.yaml")):
+    for comp in sorted(ROOT.glob("apis/*/composition*.yaml")):
+        if str(comp.relative_to(ROOT)) in SKIP_INLINE:
+            print(f"{comp.relative_to(ROOT)}  <- skipped (carries its own literal source)")
+            continue
         module = inline_composition(comp)
         size = comp.stat().st_size
         print(f"{comp.relative_to(ROOT)}  <- apis/{comp.parent.name}/kcl/main.k "

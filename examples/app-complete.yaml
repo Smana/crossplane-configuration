@@ -409,12 +409,13 @@ spec:
       retentionPolicy: "30d" # Keep backups for 30 days
 
   # ============================================================================
-  # S3 Bucket - Object Storage
+  # Object Storage
   # ============================================================================
-  # Creates an S3 bucket with IAM permissions scoped to this application
-  s3Bucket:
+  # Creates a bucket (S3 on AWS, GCS on GCP) with a scoped workload identity for
+  # this application. Location comes from the cluster's EnvironmentConfig, not
+  # the claim -- there is no top-level region.
+  objectStore:
     enabled: true
-    region: eu-west-3 # AWS region for the bucket
-    permissions: readwrite # Options: readwrite, readonly, custom
+    permissions: readwrite # Options: readwrite, readonly, custom (AWS-only; degrades to readonly on GCP)
     versioning: true # Enable object versioning
-    retentionDays: 90 # Delete objects older than 90 days
+    retentionDays: 90 # GCP only today -- inert on AWS, no S3 lifecycle rule renders yet
