@@ -113,7 +113,7 @@ spec:
       - emptyDir: {}
         name: tmp
 ---
-apiVersion: storage.gcp.m.upbound.io/v1beta2
+apiVersion: storage.gcp.m.upbound.io/v1beta1
 kind: Bucket
 metadata:
   annotations:
