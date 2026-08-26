@@ -9,8 +9,9 @@ metadata:
     meta.crossplane.io/description: |
       GCP implementations of the ogenki platform APIs: the GCPWorkloadIdentity
       contract and Composition, the GCP App Composition (GCS buckets with
-      bucket-scoped workload identity), and a placeholder SQLInstance
-      Composition that fails explicitly until CNPG lands on GCP.
+      bucket-scoped workload identity), and the GCP SQLInstance Composition
+      (CloudNativePG with barman backups to Cloud Storage, authenticated by
+      Workload Identity rather than a service-account key).
 spec:
   crossplane:
     version: ">=v2.0.0-0"

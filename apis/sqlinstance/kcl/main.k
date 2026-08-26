@@ -2,6 +2,17 @@ oxr = option("params").oxr
 ocds = option("params").ocds
 envConfig = option("params").ctx["apiextensions.crossplane.io/environment"]
 
+# Which cloud this cluster is. Same source and spelling as the App Composition's
+# `_cloud`, so both branch on one value rather than two conventions.
+#
+# This file is the SINGLE source for both clouds: composition-aws.yaml and
+# composition-gcp.yaml are generated from it, differing only in name, provider
+# label, and which EnvironmentConfig they select (eks-environment vs
+# gke-environment). Of 800-odd lines, exactly two things are cloud-specific --
+# where backups are written, and what identity writes them. Everything else, the
+# CNPG Cluster included, is already neutral.
+_cloud = envConfig?.cloud
+
 _region = envConfig.region
 
 _metadata = lambda suffix: str -> any {
@@ -367,8 +378,15 @@ if oxr.spec.backup:
         }
         spec = {
             configuration = {
-                destinationPath = "s3://" + oxr.spec.backup.bucketName
-                s3Credentials = {inheritFromIAMRole = True}
+                # gs:// + googleCredentials.gkeEnvironment is the exact GCS
+                # analogue of s3:// + s3Credentials.inheritFromIAMRole: both say
+                # "take the identity the pod already has, hold no key". Verified
+                # against the plugin-barman-cloud v0.14.0 ObjectStore CRD.
+                destinationPath = ("gs://" if _cloud == "gcp" else "s3://") + oxr.spec.backup.bucketName
+                if _cloud == "gcp":
+                    googleCredentials = {gkeEnvironment = True}
+                else:
+                    s3Credentials = {inheritFromIAMRole = True}
                 wal = {compression = "bzip2"}
                 data = {compression = "bzip2"}
             }
@@ -387,8 +405,11 @@ if oxr.spec.objectStoreRecovery:
         }
         spec = {
             configuration = {
-                destinationPath = "s3://" + oxr.spec.objectStoreRecovery.bucketName
-                s3Credentials = {inheritFromIAMRole = True}
+                destinationPath = ("gs://" if _cloud == "gcp" else "s3://") + oxr.spec.objectStoreRecovery.bucketName
+                if _cloud == "gcp":
+                    googleCredentials = {gkeEnvironment = True}
+                else:
+                    s3Credentials = {inheritFromIAMRole = True}
                 wal = {maxParallel = 8}
             }
         }
@@ -693,33 +714,59 @@ elif oxr.spec.createSuperuser and oxr.spec.atlasSchema:
         }
     ]
 
-# Create daily backups using EKS pod identity for AWS auth
+# Daily backups. The ScheduledBackup itself is cloud-neutral -- it names the
+# barman-cloud plugin, which resolves the destination from the ObjectStore above
+# -- so only the IDENTITY that writes to the bucket differs per cloud. That
+# split is why this Composition did not need forking: see _backupIdentity below.
 if oxr.spec.backup?.schedule:
-    _backupResources = [
-        {
-            apiVersion = "postgresql.cnpg.io/v1"
-            kind = "ScheduledBackup"
-            metadata = {
-                name = oxr.metadata.name + "-cnpg-daily-backup"
-                namespace = oxr.metadata.namespace
-                # We need this annotations because there aren't any field status that tells the resource is healthy
-                annotations = {
-                    "krm.kcl.dev/ready": "True"
-                }
-            }
-            spec = {
-                schedule = oxr.spec.backup.schedule
-                backupOwnerReference = "self"
-                # Plugin-based backup (SPEC-010, CL-3) — replaces the in-tree barmanObjectStore method.
-                method = "plugin"
-                pluginConfiguration = {
-                    name = "barman-cloud.cloudnative-pg.io"
-                }
-                cluster = {
-                    name = oxr.metadata.name + "-cnpg-cluster"
-                }
-            }
+    # Both identity shapes are bound unconditionally and one is SELECTED by a
+    # ternary, rather than assigned inside an if/else.
+    #
+    # That is not a style preference. Written as a nested if/else that also
+    # accumulated into _items, this block evaluated repeatedly -- three
+    # ScheduledBackups and three GCPWorkloadIdentities from a single claim, and
+    # `crossplane render` rejecting them as "multiple composed resources with
+    # name ...". Same family as function-kcl #285, which the platform
+    # constitution warns about for dicts: bind once, branch with an expression,
+    # accumulate at exactly one point.
+    #
+    # Building the unused list costs nothing -- these are plain data literals,
+    # and only the selected one reaches _items.
+    #
+    # GCP: ONE GCPWorkloadIdentity replaces the four AWS resources. GKE Workload
+    # Identity binds by subject, so no annotation goes on the ServiceAccount and
+    # no key exists anywhere.
+    #
+    # bucketRoles, not roles. A project-level roles/storage.objectAdmin would
+    # reach every bucket in the project -- OpenBao's snapshots included -- which
+    # the XRD's own field description calls out as almost never what a workload
+    # needs. objectAdmin rather than objectViewer because barman writes WALs and
+    # base backups, and deletes them when retention expires.
+    #
+    # AWS: an IAM role trusted by the EKS Pod Identity service, a policy scoped
+    # to the backup bucket, the attachment, and the association binding it to
+    # the CNPG ServiceAccount.
+    _gcpBackupIdentity = [{
+        apiVersion = "cloud.ogenki.io/v1alpha1"
+        kind = "GCPWorkloadIdentity"
+        # SQLInstance claims already carry the xplane- prefix the XRD's CEL rule
+        # requires (e.g. xplane-zitadel), so the suffix alone is enough.
+        metadata = _metadata("cnpg-backup-identity")
+        spec = {
+            # The ServiceAccount CNPG creates for the cluster. Its namespace is
+            # the claim's own -- GCPWorkloadIdentity takes no namespace field,
+            # deliberately, so a claim cannot grant an identity to another
+            # team's workload.
+            serviceAccount = {name = oxr.metadata.name + "-cnpg-cluster"}
+            bucketRoles = [{
+                bucket = oxr.spec.backup.bucketName
+                role = "roles/storage.objectAdmin"
+            }]
+            if oxr.spec.managementPolicies:
+                managementPolicies = oxr.spec.managementPolicies
         }
+    }]
+    _awsBackupIdentity = [
         {
             apiVersion = "iam.aws.m.upbound.io/v1beta1"
             kind = "Role"
@@ -812,6 +859,33 @@ if oxr.spec.backup?.schedule:
             }
         }
     ]
+
+    _backupResources = [
+        {
+            apiVersion = "postgresql.cnpg.io/v1"
+            kind = "ScheduledBackup"
+            metadata = {
+                name = oxr.metadata.name + "-cnpg-daily-backup"
+                namespace = oxr.metadata.namespace
+                # We need this annotations because there aren't any field status that tells the resource is healthy
+                annotations = {
+                    "krm.kcl.dev/ready": "True"
+                }
+            }
+            spec = {
+                schedule = oxr.spec.backup.schedule
+                backupOwnerReference = "self"
+                # Plugin-based backup (SPEC-010, CL-3) — replaces the in-tree barmanObjectStore method.
+                method = "plugin"
+                pluginConfiguration = {
+                    name = "barman-cloud.cloudnative-pg.io"
+                }
+                cluster = {
+                    name = oxr.metadata.name + "-cnpg-cluster"
+                }
+            }
+        }
+    ] + (_gcpBackupIdentity if _cloud == "gcp" else _awsBackupIdentity)
     _items += _backupResources
 
 items = _items

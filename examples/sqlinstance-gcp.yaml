@@ -1,0 +1,46 @@
+---
+# GCP SQLInstance example — exercises the composition-gcp.yaml branch.
+#
+# The claim is cloud-neutral: nothing below says "gcp". Which cloud renders is
+# decided by which Composition is installed on the cluster (aws-0 installs
+# composition-aws.yaml, gcp-0 installs composition-gcp.yaml), and
+# apis/sqlinstance/kcl/main.k's `_cloud` branch reads that from the
+# EnvironmentConfig rather than from the claim. That is the whole point of the
+# API being neutral, and it is why this file is byte-for-byte something you
+# could also apply on AWS.
+#
+# scripts/render_check.py cannot use the claim's content to pick a Composition
+# either, for the same reason — it resolves this file to composition-gcp.yaml
+# via the "-gcp" filename marker. See render_check.py's composition_for().
+#
+# `backup` is set deliberately: it is the ENTIRE cloud-specific surface of this
+# Composition. Without it, the AWS and GCP renders are identical and this
+# fixture would prove nothing. With it, the golden file pins:
+#   - ObjectStore destinationPath  gs://  (not s3://)
+#   - ObjectStore credentials      googleCredentials.gkeEnvironment: true
+#                                  (not s3Credentials.inheritFromIAMRole)
+#   - identity                     one GCPWorkloadIdentity, bucket-scoped
+#                                  (not Role + Policy + Attachment + PodIdentityAssociation)
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: SQLInstance
+metadata:
+  name: xplane-gcp-db
+  namespace: demo
+spec:
+  instances: 1
+  size: small
+  storageSize: 20Gi
+
+  databases:
+    - name: myapp
+      owner: myapp-user
+
+  roles:
+    - name: myapp-user
+      comment: "Application database user"
+      superuser: false
+
+  backup:
+    schedule: "0 2 * * *"
+    bucketName: ogenki-435905-ogenki-cnpg-backups
+    retentionPolicy: "30d"
