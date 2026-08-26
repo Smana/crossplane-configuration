@@ -1,0 +1,217 @@
+---
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: App
+metadata:
+  name: image-gallery-gcp
+  namespace: demo
+status:
+  conditions:
+  - lastTransitionTime: "2024-01-01T00:00:00Z"
+    message: 'Unready resources: image-gallery-gcp-deployment, image-gallery-gcp-gcs-bucket,
+      image-gallery-gcp-service, and 2 more'
+    reason: Creating
+    status: "False"
+    type: Ready
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: image-gallery-gcp-deployment
+  labels:
+    app.kubernetes.io/instance: image-gallery-gcp
+    app.kubernetes.io/name: image-gallery-gcp
+    crossplane.io/composite: image-gallery-gcp
+  name: image-gallery-gcp
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: image-gallery-gcp
+    uid: ""
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: image-gallery-gcp
+      app.kubernetes.io/name: image-gallery-gcp
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: image-gallery-gcp
+        app.kubernetes.io/name: image-gallery-gcp
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - env:
+        - name: USER
+          value: app
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        image: ghcr.io/smana/image-gallery:1.7.7
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 3
+        name: image-gallery-gcp
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /readyz
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: image-gallery-gcp
+      volumes:
+      - emptyDir: {}
+        name: tmp
+---
+apiVersion: storage.gcp.m.upbound.io/v1beta2
+kind: Bucket
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: image-gallery-gcp-gcs-bucket
+    crossplane.io/external-name: ogenki-435905-ogenki-image-gallery-gcp
+  labels:
+    crossplane.io/composite: image-gallery-gcp
+  name: image-gallery-gcp-gcs-bucket
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: image-gallery-gcp
+    uid: ""
+spec:
+  forProvider:
+    lifecycleRule:
+    - action:
+        type: Delete
+      condition:
+        age: 90
+    location: europe-west4
+    storageClass: STANDARD
+    uniformBucketLevelAccess: true
+    versioning:
+      enabled: true
+  providerConfigRef:
+    kind: ClusterProviderConfig
+    name: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: image-gallery-gcp-service
+  labels:
+    app.kubernetes.io/instance: image-gallery-gcp
+    app.kubernetes.io/name: image-gallery-gcp
+    crossplane.io/composite: image-gallery-gcp
+  name: image-gallery-gcp
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: image-gallery-gcp
+    uid: ""
+spec:
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: http
+  selector:
+    app.kubernetes.io/instance: image-gallery-gcp
+    app.kubernetes.io/name: image-gallery-gcp
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: image-gallery-gcp-serviceaccount
+  labels:
+    crossplane.io/composite: image-gallery-gcp
+  name: image-gallery-gcp
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: image-gallery-gcp
+    uid: ""
+---
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: GCPWorkloadIdentity
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-image-gallery-gcp-gcs-workload-identity
+  labels:
+    crossplane.io/composite: image-gallery-gcp
+  name: xplane-image-gallery-gcp-gcs-workload-identity
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: image-gallery-gcp
+    uid: ""
+spec:
+  bucketRoles:
+  - bucket: ogenki-435905-ogenki-image-gallery-gcp
+    role: roles/storage.objectAdmin
+  roles: []
+  serviceAccount:
+    name: image-gallery-gcp

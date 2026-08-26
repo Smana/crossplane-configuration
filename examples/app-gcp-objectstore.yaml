@@ -1,0 +1,36 @@
+---
+# GCP object-storage example — exercises the composition-gcp.yaml branch.
+#
+# The claim itself is cloud-neutral (nothing here says "gcp"): which cloud
+# actually renders is decided by which Composition is installed on the
+# cluster (aws-0 installs composition-aws.yaml, gcp-0 installs
+# composition-gcp.yaml) and apis/app/kcl/main.k's `_cloud` branch reads that
+# from the EnvironmentConfig, not the claim.
+#
+# This repo's own render harness (scripts/render_check.py) can't rely on the
+# claim's content to pick a Composition either, for the same reason -- it
+# resolves this file to composition-gcp.yaml via the "-gcp" filename marker.
+# See render_check.py's composition_for().
+#
+# retentionDays is set deliberately: it is the one GCP-only lifecycle field
+# with no AWS analogue in this branch, and the field whose shape (a plain
+# object under lifecycleRule[].action/condition, not a nested list) a
+# GCP-blind test suite failed to catch.
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: App
+metadata:
+  name: image-gallery-gcp
+  namespace: demo
+spec:
+  image:
+    repository: ghcr.io/smana/image-gallery
+    tag: "1.7.7"
+
+  service:
+    port: 8080
+
+  objectStore:
+    enabled: true
+    permissions: readwrite
+    versioning: true
+    retentionDays: 90

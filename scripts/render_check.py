@@ -20,23 +20,41 @@ EXAMPLES = ROOT / "examples"
 NOT_A_CLAIM = {"environmentconfig.yaml"}
 
 
-def composition_for(kind: str) -> pathlib.Path:
+def composition_for(example: pathlib.Path, kind: str) -> pathlib.Path:
     """Find the Composition whose compositeTypeRef matches this claim's kind.
 
-    An API directory may now ship one Composition per cloud (composition-aws.yaml,
+    An API directory may ship one Composition per cloud (composition-aws.yaml,
     composition-gcp.yaml) rather than a single composition.yaml -- see Task 3's
-    build-machinery change. Several files can share the same compositeTypeRef.kind;
-    sorted() picks the alphabetically-first match, which today means "-aws" before
-    "-gcp" for every example claim in examples/ (all AWS-shaped). This is a
-    stand-in, not a real per-cloud selector: it breaks the moment a GCP-shaped
-    example of a kind that also has an AWS Composition is added, at which point
-    this needs an explicit mapping instead of alphabetical luck.
+    build-machinery change. Several files can share the same compositeTypeRef.kind,
+    so kind alone no longer picks a unique file.
+
+    Claims are deliberately cloud-neutral (that is the whole point of this
+    package), so the claim's own content cannot disambiguate. Resolve by the
+    EXAMPLE'S FILENAME instead: a "-gcp" marker selects the Composition labelled
+    `provider: gcp`; anything else selects the non-gcp one. This used to be
+    "sorted() picks the alphabetically-first match", which only ever worked
+    because every example happened to be AWS-shaped and "aws" < "gcp" -- true by
+    coincidence, not by selection, and it broke the moment a GCP-shaped example
+    (examples/app-gcp-objectstore.yaml) was added.
     """
-    for comp in sorted(ROOT.glob("apis/*/composition*.yaml")):
-        doc = yaml.safe_load(comp.read_text())
-        if doc["spec"]["compositeTypeRef"]["kind"] == kind:
+    candidates = [
+        comp for comp in sorted(ROOT.glob("apis/*/composition*.yaml"))
+        if yaml.safe_load(comp.read_text())["spec"]["compositeTypeRef"]["kind"] == kind
+    ]
+    if not candidates:
+        raise SystemExit(f"no Composition found for kind {kind}")
+    if len(candidates) == 1:
+        return candidates[0]
+
+    wantProvider = "gcp" if "-gcp" in example.stem else "aws"
+    for comp in candidates:
+        provider = (yaml.safe_load(comp.read_text()).get("metadata", {}).get("labels", {}) or {}).get("provider")
+        if provider == wantProvider:
             return comp
-    raise SystemExit(f"no Composition found for kind {kind}")
+    raise SystemExit(
+        f"no provider={wantProvider!r}-labelled Composition found for kind {kind} "
+        f"among {[str(c.relative_to(ROOT)) for c in candidates]}"
+    )
 
 
 def main() -> int:
@@ -57,7 +75,7 @@ def main() -> int:
     failures = 0
     for example in examples:
         kind = yaml.safe_load(example.read_text())["kind"]
-        comp = composition_for(kind)
+        comp = composition_for(example, kind)
         proc = subprocess.run(
             ["crossplane", "render", f"examples/{example.name}",
              str(comp.relative_to(ROOT)), "functions.yaml",

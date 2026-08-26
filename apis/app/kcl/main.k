@@ -1234,8 +1234,8 @@ if oxr.spec.objectStore?.enabled and _cloud == "gcp":
                 uniformBucketLevelAccess = True
                 if oxr.spec.objectStore.retentionDays:
                     lifecycleRule = [{
-                        action = [{type = "Delete"}]
-                        condition = [{age = oxr.spec.objectStore.retentionDays}]
+                        action = {type = "Delete"}
+                        condition = {age = oxr.spec.objectStore.retentionDays}
                     }]
             }
         }
