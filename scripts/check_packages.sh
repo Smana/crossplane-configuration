@@ -14,13 +14,21 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# gcp went 1 -> 3 Compositions with the objectStore migration: it now ships the
-# App Composition (GCS buckets, bucket-scoped workload identity) and the
-# SQLInstance stub alongside GCPWorkloadIdentity. Its XRD count stays 1 --
-# GCPWorkloadIdentity is the only contract it owns; App and SQLInstance are
-# cloud-neutral and ship from core.
+# gcp ships 4 Compositions: GCPWorkloadIdentity, App (GCS buckets with
+# bucket-scoped workload identity), SQLInstance (CNPG with barman backups to
+# Cloud Storage) and InferenceService (per-claim read identity on the weights
+# bucket). It went 1 -> 3 with the objectStore migration, and 3 -> 4 when
+# InferenceService gained a GCP branch -- at which point SQLInstance also
+# stopped being a stub and became a real implementation.
+#
+# Its XRD count stays 1: GCPWorkloadIdentity is the only contract it owns. App,
+# SQLInstance, InferenceService and KVStore are cloud-neutral and ship from core.
+#
+# aws stays 4 (App, SQLInstance, InferenceService, EPI) and 1 XRD (EPI) --
+# InferenceService moved from a lone composition.yaml to composition-aws.yaml
+# without changing the count.
 declare -A EXPECT_XRD=([core]=4 [aws]=1 [gcp]=1)
-declare -A EXPECT_COMP=([core]=1 [aws]=4 [gcp]=3)
+declare -A EXPECT_COMP=([core]=1 [aws]=4 [gcp]=4)
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "${tmp}"' EXIT
