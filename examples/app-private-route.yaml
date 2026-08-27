@@ -1,0 +1,33 @@
+---
+# An App exposed on the PRIVATE gateway — the path no fixture covered.
+#
+# This example exists because its absence hid a real bug. app-basic.yaml has no
+# route at all (it mentions one only in a comment) and app-complete.yaml sets
+# `internetFacing: true`, so every golden exercised either no route or the
+# public one. The private branch of `_routeDomainSuffix` was rendered by nobody.
+#
+# That branch hardcoded ".priv.cloud.ogenki.io". cloud-native-ref's ADR-0017
+# renamed the private domains to priv.aws.ogenki.io and priv.gcp.ogenki.io and
+# its manifests followed; this Composition did not. The Gateways then served
+# *.priv.aws.ogenki.io while every HTTPRoute rendered here asked for
+# *.priv.cloud.ogenki.io, so no route was ever Accepted and every App carrying
+# one sat Ready=False -- on BOTH clusters, found only by looking at a live one.
+#
+# The golden for this file pins the hostname to the domain the EnvironmentConfig
+# publishes. If the literal ever comes back, this is what fails.
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: App
+metadata:
+  name: private-app
+  namespace: demo
+spec:
+  image:
+    repository: ghcr.io/example/private-app
+    tag: "v1.0.0"
+  service:
+    port: 8080
+  route:
+    enabled: true
+    # internetFacing omitted: false is the default, and the default is the case
+    # that was broken.
+    hostname: "private-app"

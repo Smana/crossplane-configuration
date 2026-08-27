@@ -892,7 +892,33 @@ if oxr.spec.route?.enabled == True and _isWeb:
     # IMPORTANT: Calculate all values inline to avoid mutation (issue #285)
     _routeGatewayName = oxr.spec.gateway.name or _name + "-gateway" if oxr.spec.gateway?.enabled else "platform-public" if oxr.spec.route?.internetFacing else "platform-tailscale-general"
     _routeGatewayNamespace = oxr.spec.gateway.namespace or _namespace if oxr.spec.gateway?.enabled else "infrastructure"
-    _routeDomainSuffix = "" if oxr.spec.gateway?.enabled else ".cloud.ogenki.io" if oxr.spec.route?.internetFacing else ".priv.cloud.ogenki.io"
+
+    # The domain comes from the EnvironmentConfig, not from a literal here.
+    #
+    # It used to be hardcoded ".priv.cloud.ogenki.io" / ".cloud.ogenki.io", and
+    # that silently broke every routed App on BOTH clouds. cloud-native-ref's
+    # ADR-0017 renamed the private domains to priv.aws.ogenki.io and
+    # priv.gcp.ogenki.io; its manifests followed, this line did not. The
+    # Gateways then served *.priv.aws.ogenki.io while every HTTPRoute this
+    # Composition rendered asked for *.priv.cloud.ogenki.io, so no route was
+    # ever Accepted and every App carrying one sat Ready=False -- on aws-0 as
+    # well as gcp-0. Nothing failed loudly: the manifests are valid, the
+    # Composition renders, and only the live cluster shows the mismatch.
+    #
+    # Both clusters already publish privateDomainName, so the fallbacks below
+    # are unreachable there. They exist so a cluster whose EnvironmentConfig
+    # predates the field keeps rendering rather than producing a hostname with
+    # a hole in it -- and they are deliberately the OLD values, so behaviour is
+    # unchanged for anyone still on such a config.
+    #
+    # publicDomainName is read the same way but is not yet published by either
+    # cluster, so today it always takes the fallback. That is intentional: it
+    # makes this Composition correct the moment the key appears, without a
+    # second release. ADR-0019 already made the public name per-cloud
+    # (cloud.ogenki.io vs gcp.cloud.ogenki.io), so it will need to.
+    _privateDomain = envConfig?.privateDomainName or "priv.cloud.ogenki.io"
+    _publicDomain = envConfig?.publicDomainName or "cloud.ogenki.io"
+    _routeDomainSuffix = "" if oxr.spec.gateway?.enabled else "." + _publicDomain if oxr.spec.route?.internetFacing else "." + _privateDomain
     # Detect preview environment from namespace naming convention (preview-pr-<id>)
     _isPreview = _namespace.startswith("preview-")
     _previewSuffix = "-" + _namespace[8::] if _isPreview else ""

@@ -15,7 +15,12 @@ data:
   vpcId: "vpc-0"
   CIDRBlock: "10.0.0.0/16"
   privateSubnetIds: "subnet-0,subnet-1,subnet-2"
-  privateDomainName: "priv.cloud.ogenki.io"
+  # priv.aws.ogenki.io, matching the LIVE aws-0 EnvironmentConfig. It said
+  # priv.cloud.ogenki.io until now -- the pre-ADR-0017 name -- which meant the
+  # golden fixtures agreed with a hardcoded literal in the App Composition
+  # instead of with the cluster. The two were consistently wrong together, so
+  # render equivalence passed while every routed App on aws-0 sat Ready=False.
+  privateDomainName: "priv.aws.ogenki.io"
 ---
 # The GCP counterpart, read by the GCPWorkloadIdentity Composition.
 #

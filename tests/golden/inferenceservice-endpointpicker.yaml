@@ -12,7 +12,7 @@ status:
     reason: Creating
     status: "False"
     type: Ready
-  modelEndpoint: https://llm.priv.cloud.ogenki.io/v1
+  modelEndpoint: https://llm.priv.aws.ogenki.io/v1
   servedModels:
   - kind: base
     name: xplane-qwen-coder
