@@ -7,10 +7,15 @@ metadata:
     meta.crossplane.io/source: github.com/Smana/crossplane-configuration
     meta.crossplane.io/license: Apache-2.0
     meta.crossplane.io/description: |
-      GCP implementations of the ogenki platform APIs: the GCPWorkloadIdentity
-      contract and Composition, the GCP App Composition (GCS buckets with
-      bucket-scoped workload identity), and a placeholder SQLInstance
-      Composition that fails explicitly until CNPG lands on GCP.
+      GCP implementations of the ogenki platform APIs:
+        - GCPWorkloadIdentity, the contract and its Composition.
+        - App, with GCS buckets and bucket-scoped workload identity.
+        - SQLInstance, CloudNativePG with barman backups to Cloud Storage,
+          authenticated by Workload Identity rather than a service-account key.
+        - InferenceService, whose serving pods get a per-claim read-only
+          identity on the model-weights bucket -- Cloud Storage FUSE
+          authenticates as the mounting pod, not at the CSI controller as EFS
+          does on AWS.
 spec:
   crossplane:
     version: ">=v2.0.0-0"
@@ -18,7 +23,9 @@ spec:
     # The cloud-neutral contracts, same as the aws package depends on them.
     # Floor raised from >=v0.1.0 for the objectStore migration -- same
     # reasoning as the aws package. This package's App Composition needs
-    # core v0.3.0's XRD, and its SQLInstance stub needs that contract too.
+    # core v0.3.0's XRD, and its SQLInstance Composition needs that contract
+    # too -- it is a real implementation now, not the assert-False stub this
+    # comment used to describe.
     - configuration: ghcr.io/smana/crossplane-configuration-core
       version: ">=v0.3.0"
     # Every function the Composition's pipeline names is declared HERE, not

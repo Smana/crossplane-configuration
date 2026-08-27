@@ -1,0 +1,202 @@
+---
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: SQLInstance
+metadata:
+  name: xplane-gcp-db
+  namespace: demo
+status:
+  conditions:
+  - lastTransitionTime: "2024-01-01T00:00:00Z"
+    message: 'Unready resources: xplane-gcp-db-cnpg-backup-identity, xplane-gcp-db-cnpg-cluster,
+      xplane-gcp-db-cnpg-externalsecret-myapp, and 1 more'
+    reason: Creating
+    status: "False"
+    type: Ready
+---
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: GCPWorkloadIdentity
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-gcp-db-cnpg-backup-identity
+  labels:
+    crossplane.io/composite: xplane-gcp-db
+  name: xplane-gcp-db-cnpg-backup-identity
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: SQLInstance
+    name: xplane-gcp-db
+    uid: ""
+spec:
+  bucketRoles:
+  - bucket: ogenki-435905-ogenki-cnpg-backups
+    role: roles/storage.objectAdmin
+  serviceAccount:
+    name: xplane-gcp-db-cnpg-cluster
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-gcp-db-cnpg-cluster
+  labels:
+    crossplane.io/composite: xplane-gcp-db
+  name: xplane-gcp-db-cnpg-cluster
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: SQLInstance
+    name: xplane-gcp-db
+    uid: ""
+spec:
+  bootstrap:
+    initdb:
+      database: myapp
+      owner: myapp-user
+      secret:
+        name: xplane-gcp-db-cnpg-myapp
+  imageName: ghcr.io/cloudnative-pg/postgresql:18-system-trixie
+  instances: 1
+  managed:
+    roles:
+    - comment: Application database user
+      login: true
+      name: myapp-user
+      passwordSecret:
+        name: xplane-gcp-db-cnpg-myapp
+      superuser: false
+  monitoring:
+    enablePodMonitor: true
+  plugins:
+  - isWALArchiver: true
+    name: barman-cloud.cloudnative-pg.io
+    parameters:
+      barmanObjectName: xplane-gcp-db-cnpg-objectstore
+  resources:
+    limits:
+      cpu: "1"
+      memory: 1Gi
+    requests:
+      cpu: "0.5"
+      memory: 1Gi
+  storage:
+    size: 20Gi
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-gcp-db-cnpg-daily-backup
+  labels:
+    crossplane.io/composite: xplane-gcp-db
+  name: xplane-gcp-db-cnpg-daily-backup
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: SQLInstance
+    name: xplane-gcp-db
+    uid: ""
+spec:
+  backupOwnerReference: self
+  cluster:
+    name: xplane-gcp-db-cnpg-cluster
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+  schedule: 0 2 * * *
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-gcp-db-cnpg-externalsecret-myapp
+  labels:
+    crossplane.io/composite: xplane-gcp-db
+  name: xplane-gcp-db-cnpg-myapp
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: SQLInstance
+    name: xplane-gcp-db
+    uid: ""
+spec:
+  data:
+  - remoteRef:
+      key: cnpg/xplane-gcp-db/roles/myapp-user
+      property: username
+    secretKey: username
+  - remoteRef:
+      key: cnpg/xplane-gcp-db/roles/myapp-user
+      property: password
+    secretKey: password
+  refreshInterval: 30m
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: clustersecretstore
+  target:
+    creationPolicy: Owner
+    deletionPolicy: Retain
+    name: xplane-gcp-db-cnpg-myapp
+    template:
+      data:
+        password: '{{ .password }}'
+        uri: postgresql://{{ .username | urlquery }}:{{ .password | urlquery }}@xplane-gcp-db-cnpg-cluster-rw.demo.svc:5432/myapp
+        username: '{{ .username }}'
+      engineVersion: v2
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-gcp-db-cnpg-myapp
+  labels:
+    crossplane.io/composite: xplane-gcp-db
+  name: xplane-gcp-db-cnpg-myapp
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: SQLInstance
+    name: xplane-gcp-db
+    uid: ""
+spec:
+  cluster:
+    name: xplane-gcp-db-cnpg-cluster
+  name: myapp
+  owner: myapp-user
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-gcp-db-cnpg-objectstore
+  labels:
+    crossplane.io/composite: xplane-gcp-db
+  name: xplane-gcp-db-cnpg-objectstore
+  namespace: demo
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: SQLInstance
+    name: xplane-gcp-db
+    uid: ""
+spec:
+  configuration:
+    data:
+      compression: bzip2
+    destinationPath: gs://ogenki-435905-ogenki-cnpg-backups
+    googleCredentials:
+      gkeEnvironment: true
+    wal:
+      compression: bzip2
+  retentionPolicy: 30d

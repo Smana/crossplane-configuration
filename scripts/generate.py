@@ -32,12 +32,19 @@ MODULE = {
 
 
 # Composition manifests carrying their own literal `source`, never touched by
-# the inliner. apis/sqlinstance/composition-gcp.yaml is a deliberate stub
-# (apis/sqlinstance/kcl-gcp/main.k, deleted by workstream 9) that shares its
-# directory with the AWS Composition's kcl/main.k -- without this skip, the
-# glob below would find that sibling module and silently overwrite the stub's
-# nine-line dead-end with the 34KB AWS SQLInstance module, exit 0, no error.
-SKIP_INLINE = {"apis/sqlinstance/composition-gcp.yaml"}
+# the inliner.
+#
+# Empty since the real GCP SQLInstance Composition landed. It used to hold
+# apis/sqlinstance/composition-gcp.yaml, which carried a nine-line `assert
+# False` stub and had to be protected from the glob below -- otherwise the
+# inliner would find the sibling kcl/main.k and silently overwrite the stub
+# with the AWS module, exit 0, no error. Both Compositions now inline that same
+# module on purpose: it branches on envConfig.cloud internally.
+#
+# Kept rather than deleted because the hazard it guards against is structural:
+# any Composition sharing a directory with a kcl/ module gets that module
+# inlined whether or not it wants it.
+SKIP_INLINE: set[str] = set()
 
 
 class Literal(str):

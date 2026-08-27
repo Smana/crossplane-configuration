@@ -44,6 +44,10 @@ spec:
           ocds = option("params").ocds
           envConfig = option("params").ctx["apiextensions.crossplane.io/environment"]
 
+          # Which cloud this cluster is. Same source and spelling as the App Composition's
+          # `_cloud`, so the two branch on one value rather than two conventions.
+          _cloud = envConfig?.cloud
+
           _name = oxr.metadata.name
           _namespace = oxr.metadata.namespace
 
@@ -971,6 +975,49 @@ spec:
           # directly — model weights are mounted via the EFS CSI driver. The CSI
           # controller has its own IAM (xplane-llm-models-fs-csi-driver, created
           # in opentofu/llm-platform/iam.tf) bound to kube-system/efs-csi-controller-sa.
+          #
+          # GCP CANNOT DO THE SAME, and the difference is in the drivers, not the design.
+          # EFS authenticates at the controller: pods just mount, which is what let the
+          # per-claim EPI go. Cloud Storage FUSE authenticates as the MOUNTING POD's own
+          # Kubernetes ServiceAccount via Workload Identity Federation — that per-pod
+          # granularity is the driver's whole selling point. So on GCP each serving pod's
+          # SA needs its own grant, or the mount succeeds and every read 403s: a failure
+          # that looks like a broken volume and is actually IAM.
+          #
+          # Read-only, and bucket-scoped rather than project-scoped. `spec.roles` on this
+          # XRD renders a PROJECT-level ProjectIAMMember, which for roles/storage.* would
+          # reach OpenBao's snapshot bucket and CNPG's backups — the XRD's own field
+          # description says so, and `bucketRoles` exists to avoid exactly that.
+          #
+          # The preload Job is NOT covered here. It runs as the shared
+          # `_DEFAULTS.preload_sa`, not a per-claim SA, so its write grant is a single
+          # static claim in cloud-native-ref (apps/gcp-0/llm/) rather than something this
+          # Composition should render once per model.
+          if _cloud == "gcp":
+              _gcsWeightsRead = [{
+                  apiVersion = "cloud.ogenki.io/v1alpha1"
+                  kind = "GCPWorkloadIdentity"
+                  # `_name` already carries the xplane- prefix the XRD's CEL rule
+                  # requires (claims are named e.g. xplane-qwen3-8b), so the suffix alone
+                  # is enough — prefixing again would produce xplane-xplane-.
+                  metadata = _metadata("gcs-weights-read", False) | {name = _name + "-gcs-read"}
+                  spec = {
+                      # The per-claim serving ServiceAccount this Composition renders
+                      # above, which the serving Deployment sets as serviceAccountName.
+                      serviceAccount = {name = _name}
+                      bucketRoles = [{
+                          # Same convention the App Composition uses for its GCS buckets:
+                          # <projectID>-ogenki-<name>. The project ID is globally unique,
+                          # which GCS bucket names must also be. This must match the
+                          # volumeHandle on cloud-native-ref's static PV — they name one
+                          # bucket from two places, and a mismatch fails at read time.
+                          bucket = envConfig.projectID + "-ogenki-llm-models"
+                          role = "roles/storage.objectViewer"
+                      }]
+                  }
+              }]
+              _items += _gcsWeightsRead
+
           if oxr.spec.externalSecrets:
               _externalSecrets = [{
                   apiVersion = "external-secrets.io/v1"

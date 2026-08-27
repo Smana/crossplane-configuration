@@ -1,0 +1,37 @@
+---
+# GCP InferenceService example — exercises the composition-gcp.yaml branch.
+#
+# Identical in shape to inferenceservice-basic.yaml, and deliberately so: the
+# claim is cloud-neutral and nothing below says "gcp". Which cloud renders is
+# decided by the EnvironmentConfig the installed Composition selects, which is
+# what apis/inferenceservice/kcl/main.k's `_cloud` reads.
+#
+# scripts/render_check.py resolves this file to composition-gcp.yaml via the
+# "-gcp" filename marker — see composition_for().
+#
+# What the golden pins that the AWS goldens cannot: a per-claim
+# GCPWorkloadIdentity granting the serving ServiceAccount read access to the
+# weights bucket. AWS needs no such resource, because the EFS CSI driver
+# authenticates at the CONTROLLER and serving pods just mount (ADR-0004, and
+# the note in main.k where the per-claim EPI was dropped). Cloud Storage FUSE
+# authenticates as the MOUNTING POD's own ServiceAccount instead, so without
+# this the mount succeeds and every read 403s — a failure that looks like a
+# broken volume and is actually IAM.
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: InferenceService
+metadata:
+  name: xplane-qwen3-8b-gcp
+  namespace: llm
+spec:
+  model:
+    repository: Qwen/Qwen3-8B
+    revision: main
+    quantization: fp16
+    contextWindow: 8192
+    preload:
+      enabled: true
+  gpu:
+    count: 1
+  routing:
+    tier: medium
+    specialty: general

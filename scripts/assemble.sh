@@ -19,24 +19,38 @@ cp packages/core/crossplane.yaml build/core/crossplane.yaml
 cp examples/kvstore-basic.yaml examples/kvstore-complete.yaml build/core/examples/
 
 # --- aws: the AWS contract, plus every AWS Composition ------------------------
+#
+# inferenceservice joined the -aws/-gcp pair when the GCP branch landed; only
+# epi is still a single cloud-specific Composition with no sibling, because EPI
+# is an AWS-only contract (GCPWorkloadIdentity is its GCP counterpart, and ships
+# in the gcp package rather than as a second Composition for the same kind).
 cp apis/epi/definition.yaml build/aws/apis/epi-definition.yaml
-for api in app sqlinstance; do
+for api in app sqlinstance inferenceservice; do
   cp "apis/$api/composition-aws.yaml" "build/aws/apis/$api-composition.yaml"
 done
-for api in inferenceservice epi; do
-  cp "apis/$api/composition.yaml" "build/aws/apis/$api-composition.yaml"
-done
+cp apis/epi/composition.yaml build/aws/apis/epi-composition.yaml
 cp packages/aws/crossplane.yaml build/aws/crossplane.yaml
-cp examples/app-*.yaml examples/sqlinstance-*.yaml examples/inferenceservice-*.yaml \
+# Explicit, not globbed. `examples/app-*.yaml` also matches
+# app-gcp-objectstore.yaml, so the AWS package shipped a GCP example as its own
+# documentation -- harmless at runtime, actively misleading to read.
+cp examples/app-basic.yaml examples/app-complete.yaml examples/app-cron.yaml \
+   examples/app-worker.yaml \
+   examples/sqlinstance-basic.yaml examples/sqlinstance-complete.yaml \
+   examples/inferenceservice-basic.yaml examples/inferenceservice-complete.yaml \
+   examples/inferenceservice-endpointpicker.yaml \
    examples/epi.yaml examples/environmentconfig.yaml build/aws/examples/
 
 # --- gcp: the GCP contract and its Compositions -------------------------------
 cp apis/gcpworkloadidentity/definition.yaml build/gcp/apis/gcpworkloadidentity-definition.yaml
 cp apis/gcpworkloadidentity/composition.yaml build/gcp/apis/gcpworkloadidentity-composition.yaml
-cp apis/app/composition-gcp.yaml build/gcp/apis/app-composition.yaml
-cp apis/sqlinstance/composition-gcp.yaml build/gcp/apis/sqlinstance-composition.yaml
+for api in app sqlinstance inferenceservice; do
+  cp "apis/$api/composition-gcp.yaml" "build/gcp/apis/$api-composition.yaml"
+done
 cp packages/gcp/crossplane.yaml build/gcp/crossplane.yaml
-cp examples/gcpworkloadidentity.yaml examples/environmentconfig.yaml build/gcp/examples/
+cp examples/gcpworkloadidentity.yaml examples/gcpworkloadidentity-bucket.yaml \
+   examples/app-gcp-objectstore.yaml examples/sqlinstance-gcp.yaml \
+   examples/inferenceservice-gcp.yaml \
+   examples/environmentconfig.yaml build/gcp/examples/
 
 echo "staged:"
 find build -name '*.yaml' | sort | sed 's/^/  /'
