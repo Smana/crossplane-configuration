@@ -16,6 +16,20 @@ envConfig = option("params").ctx["apiextensions.crossplane.io/environment"]
 # `_cloud`, so the two branch on one value rather than two conventions.
 _cloud = envConfig?.cloud
 
+# The cluster's private domain, read from the EnvironmentConfig rather than
+# written as a literal.
+#
+# Defined HERE, at the top, rather than beside its first consumer: it has two,
+# and the other one (the HTTPRoute hostname, further down) used to carry its own
+# hardcoded ".priv.cloud.ogenki.io" precisely because this binding was declared
+# after it and could not be referenced. Two copies, one of which was never
+# updated when cloud-native-ref's ADR-0017 renamed the private domains to
+# priv.aws.ogenki.io and priv.gcp.ogenki.io.
+#
+# The fallback keeps a cluster whose EnvironmentConfig predates the field
+# rendering, and is deliberately the OLD value so nothing changes for one.
+_privateDomain = envConfig?.privateDomainName or "priv.cloud.ogenki.io"
+
 _name = oxr.metadata.name
 _namespace = oxr.metadata.namespace
 
@@ -575,7 +589,7 @@ _items += _scaledObject
 
 # Per-model HTTPRoute is opt-in; most claims reach vLLM via the Semantic Router
 if _routeEnabled:
-    _routeHostname = oxr.spec.route.hostname + ".priv.cloud.ogenki.io" if oxr.spec.route?.hostname else None
+    _routeHostname = oxr.spec.route.hostname + "." + _privateDomain if oxr.spec.route?.hostname else None
     _httpRoute = [{
         apiVersion = "gateway.networking.k8s.io/v1"
         kind = "HTTPRoute"
@@ -752,7 +766,6 @@ if _gatewayEnabled:
 # EnvironmentConfig predates the field. External entry via the Tailscale gateway
 # resolves to llm.<domain> (SPEC-002 P5). Patched onto the XR via the
 # desired-composite (dxr) per the function-kcl status convention.
-_privateDomain = envConfig?.privateDomainName or "priv.cloud.ogenki.io"
 _dxrStatus = [{
     **option("params").dxr
     status: {
