@@ -289,6 +289,11 @@ _eppExtProcPort = 9002
 # port NAME; the EPP CNP allows vmagent to reach it by NUMBER (_eppIngressRules).
 _eppMetricsPort = 9090
 
+# GPU node tolerations. AWS taints its pool with nvidia.com/gpu alone; GKE's
+# ComputeClass adds node.cilium.io/agent-not-ready and its own comment block says
+# workloads MUST tolerate both.
+_gpuTolerations = [{key = "nvidia.com/gpu", operator = "Exists", effect = "NoSchedule"}] + ([{key = "node.cilium.io/agent-not-ready", operator = "Exists", effect = "NoSchedule"}] if _cloud == "gcp" else [])
+
 # Shared CiliumNetworkPolicy peer selectors. Both the serving CNP and the EPP CNP
 # admit the same two callers, so the selectors live in one place — a drift between
 # two copies of these labels is a silent DROP, not an error.
@@ -435,9 +440,36 @@ _deployment = {
                 # for in-cluster API calls (Downward API metadata, future
                 # service-mesh use) and is harmless without an IAM binding.
                 automountServiceAccountToken = True
-                nodeSelector = {"karpenter.sh/nodepool" = _DEFAULTS.nodepool}
-                tolerations = [{key = "nvidia.com/gpu", operator = "Exists", effect = "NoSchedule"}]
-                runtimeClassName = "nvidia"
+                # HOW A GPU NODE IS ASKED FOR, which is a different mechanism on
+                # each cloud even though the pool is named the same on both.
+                # AWS selects a Karpenter NodePool; GKE selects a ComputeClass
+                # (infrastructure/gcp-0/computeclass/gpu-l4.yaml) through the
+                # label GKE reserves for it.
+                nodeSelector = {"cloud.google.com/compute-class" = _DEFAULTS.nodepool} if _cloud == "gcp" else {"karpenter.sh/nodepool" = _DEFAULTS.nodepool}
+                # `nvidia.com/gpu` is the conventional accelerator taint and is
+                # identical on both clouds. GKE adds a SECOND one that is not
+                # optional: node.cilium.io/agent-not-ready, applied by the
+                # ComputeClass's nodePoolConfig. Without tolerating it nothing
+                # scales up at all -- the pod stays Pending and, with the class's
+                # `whenUnsatisfiable: DoNotScaleUp`, no event says why.
+                # `operator: Exists` deliberately, never Equal with a value: GKE
+                # sets its own value on the GPU taint and Kubernetes forbids two
+                # taints sharing key+effect.
+                tolerations = _gpuTolerations
+                # NO runtimeClassName ON GCP, and that is a real divergence
+                # rather than an omission. On AWS the Bottlerocket NVIDIA variant
+                # requires `runtimeClassName: nvidia` plus a matching RuntimeClass
+                # (infrastructure/base/runtimeclass-nvidia/). GKE installs the
+                # driver through its own DaemonSet and wires the default runtime,
+                # so a GPU pod just requests nvidia.com/gpu and works.
+                #
+                # Rendering it anyway is not harmless: the API server REJECTS the
+                # pod outright --
+                #   pods "..." is forbidden: pod rejected: RuntimeClass "nvidia" not found
+                # -- so the ReplicaSet reports FailedCreate and no pod is ever
+                # scheduled. Observed on gcp-0, 2026-08-28.
+                if _cloud != "gcp":
+                    runtimeClassName = "nvidia"
                 terminationGracePeriodSeconds = 60
                 securityContext = {
                     seccompProfile = {type = "RuntimeDefault"}
