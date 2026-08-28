@@ -52,6 +52,19 @@ spec:
       rules:
         dns:
         - matchPattern: '*'
+  - toCIDR:
+    - 169.254.169.254/32
+    toPorts:
+    - ports:
+      - port: "80"
+        protocol: TCP
+  - toFQDNs:
+    - matchName: storage.googleapis.com
+    - matchPattern: '*.storage.googleapis.com'
+    toPorts:
+    - ports:
+      - port: "443"
+        protocol: TCP
   endpointSelector:
     matchLabels:
       app.kubernetes.io/component: inference
@@ -119,10 +132,15 @@ spec:
       rules:
         dns:
         - matchPattern: '*'
+  - toCIDR:
+    - 169.254.169.254/32
+    toPorts:
+    - ports:
+      - port: "80"
+        protocol: TCP
   - toFQDNs:
-    - matchPattern: '*.s3.eu-west-3.amazonaws.com'
-    - matchName: s3.eu-west-3.amazonaws.com
-    - matchPattern: '*.secretsmanager.eu-west-3.amazonaws.com'
+    - matchName: storage.googleapis.com
+    - matchPattern: '*.storage.googleapis.com'
     toPorts:
     - ports:
       - port: "443"
@@ -132,12 +150,6 @@ spec:
     toPorts:
     - ports:
       - port: "443"
-        protocol: TCP
-  - toEntities:
-    - host
-    toPorts:
-    - ports:
-      - port: "80"
         protocol: TCP
   endpointSelector:
     matchLabels:

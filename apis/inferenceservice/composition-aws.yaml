@@ -930,6 +930,41 @@ spec:
               toPorts = [{ports = [{port = "80", protocol = "TCP"}]}]
           }]
 
+          # GKE metadata server — the GCP counterpart of _eksPodIdentityEgress, and it
+          # must be expressed differently for a reason that has bitten this platform
+          # before. On EKS the Pod Identity Agent is a HOST-NETWORK endpoint, so Cilium
+          # classifies it as the `host` entity and `toCIDR` silently fails. On GKE the
+          # metadata server at 169.254.169.254 is NOT classified as `host`, so the reverse
+          # holds: it needs the address. Same rule shape runlore already ships for GKE
+          # (Smana/runlore#563).
+          #
+          # Needed by the Cloud Storage FUSE sidecar, which exchanges the pod's
+          # ServiceAccount token here before it can touch the bucket. Without it the
+          # sidecar starts, retries forever, and the pod sits in PodInitializing with no
+          # mention of networking anywhere in its status:
+          #
+          #   failed to get project: Get "http://169.254.169.254/computeMetadata/v1/..."
+          #   dial tcp 169.254.169.254:80: i/o timeout
+          _gkeMetadataEgress = [{
+              toCIDR = ["169.254.169.254/32"]
+              toPorts = [{ports = [{port = "80", protocol = "TCP"}]}]
+          }]
+
+          # Cloud Storage, for the same sidecar. Scoped by FQDN rather than
+          # `toEntities: world` because the SERVING pod is long-lived, unlike the one-shot
+          # preload Job the world:443 rule is justified for. The wildcard is required as
+          # well as the apex: GCS redirects object reads to bucket-specific hosts, and
+          # matchPattern does not span dots.
+          _gcsEgress = [{
+              toFQDNs = [{matchName = "storage.googleapis.com"}, {matchPattern = "*.storage.googleapis.com"}]
+              toPorts = [{ports = [{port = "443", protocol = "TCP"}]}]
+          }]
+
+          # What a GCP pod needs to mount the weights bucket, named once so the serving
+          # and preload policies cannot drift apart. Empty on AWS, where weights arrive
+          # through the EFS CSI mount with no in-pod credential exchange at all.
+          _gcsFuseEgress = _gkeMetadataEgress + _gcsEgress if _cloud == "gcp" else []
+
           # Serving CNP — endpointSelector scoped to component=inference, so the
           # preload Job pod (component=preload) is governed by the separate CNP
           # rendered below. CNP is in the static-ready list per
@@ -943,7 +978,11 @@ spec:
                   # appended so the EPP may reach vLLM :8000 to score replicas.
                   endpointSelector = {matchLabels = _appLabels | {"app.kubernetes.io/component" = "inference"}}
                   ingress = (oxr.spec.networkPolicies?.ingress or _defaultIngress) + _metricsIngress + _eppScrapeIngress
-                  egress = oxr.spec.networkPolicies?.egress or _dnsEgress
+                  # _gcsFuseEgress is APPENDED rather than folded into the default, so a
+                  # claim that overrides networkPolicies.egress cannot accidentally remove
+                  # its own ability to mount the weights it serves. Empty on AWS, so that
+                  # cloud's rendered policy is unchanged.
+                  egress = (oxr.spec.networkPolicies?.egress or _dnsEgress) + _gcsFuseEgress
               }
           }]
           _items += _networkPolicy
@@ -998,7 +1037,14 @@ spec:
                   metadata = _metadata("cilium-netpol-preload", True) | {name = _name + "-preload"}
                   spec = {
                       endpointSelector = {matchLabels = _preloadLabels}
-                      egress = _dnsEgress + _awsApiEgress + _internetHttpsEgress + _eksPodIdentityEgress
+                      # AWS keeps its exact previous rule ORDER, so its golden fixtures
+                      # stay byte-identical and this change is provably GCP-only.
+                      #
+                      # _awsApiEgress (S3 + Secrets Manager) and _eksPodIdentityEgress are
+                      # AWS-shaped and were applied on BOTH clouds until 2026-08-28, which
+                      # is why a GKE preload could reach HuggingFace and then never
+                      # authenticate to the bucket it was downloading into.
+                      egress = _dnsEgress + (_gcsFuseEgress + _internetHttpsEgress if _cloud == "gcp" else _awsApiEgress + _internetHttpsEgress + _eksPodIdentityEgress)
                   }
               }]
               _items += _preloadNetworkPolicy
