@@ -177,6 +177,8 @@ spec:
     type: Recreate
   template:
     metadata:
+      annotations:
+        gke-gcsfuse/volumes: "true"
       labels:
         app.kubernetes.io/component: inference
         app.kubernetes.io/instance: xplane-qwen3-8b-gcp
@@ -344,6 +346,8 @@ spec:
   backoffLimit: 3
   template:
     metadata:
+      annotations:
+        gke-gcsfuse/volumes: "true"
       labels:
         app.kubernetes.io/component: preload
         app.kubernetes.io/instance: xplane-qwen3-8b-gcp
