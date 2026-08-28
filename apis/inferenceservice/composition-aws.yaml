@@ -48,6 +48,12 @@ spec:
           # `_cloud`, so the two branch on one value rather than two conventions.
           _cloud = envConfig?.cloud
 
+          # The annotation GKE's Cloud Storage FUSE CSI driver keys its sidecar injection
+          # on. Defined once because two pod templates need it -- the serving Deployment
+          # and the preload Job -- and they must not drift: a sidecar on one and not the
+          # other is a platform that writes weights it cannot read back.
+          _FUSE_ANNOTATION = {"gke-gcsfuse/volumes" = "true"}
+
           # The cluster's private domain, read from the EnvironmentConfig rather than
           # written as a literal.
           #
@@ -438,7 +444,20 @@ spec:
                   # GPUs are scarce; surge would block scheduling
                   strategy = {type = "Recreate"}
                   template = {
-                      metadata = {labels = _appLabels}
+                      # GKE's Cloud Storage FUSE CSI driver injects its sidecar ONLY into
+                      # pods carrying this annotation. Without it there is no sidecar, the
+                      # driver never authenticates as the pod's ServiceAccount, and the
+                      # mount fails as a PermissionDenied naming a bucket permission the SA
+                      # demonstrably HAS -- so it reads as broken IAM rather than a missing
+                      # annotation. Found on gcp-0's first LLM resume, 2026-08-28.
+                      #
+                      # AWS renders no annotations block at all: S3 Files is a POSIX mount
+                      # with no sidecar to inject.
+                      metadata = {
+                          labels = _appLabels
+                          if _cloud == "gcp":
+                              annotations = _FUSE_ANNOTATION
+                      }
                       spec = {
                           serviceAccountName = _name
                           # SA carries no IAM — per ADR-0004 the serving pod reaches
@@ -1193,7 +1212,16 @@ spec:
                       template = {
                           # `component=preload` switches the pod onto the broader
                           # preload CNP (HF/world:443, AWS API, EKS PIA host:80).
-                          metadata = {labels = _preloadLabels}
+                          #
+                          # Same FUSE annotation as the serving template above, and needed
+                          # first: the preload is what WRITES the weights, so on GCP it is
+                          # the first pod to mount the bucket and the first to fail without
+                          # a sidecar.
+                          metadata = {
+                              labels = _preloadLabels
+                              if _cloud == "gcp":
+                                  annotations = _FUSE_ANNOTATION
+                          }
                           spec = {
                               serviceAccountName = _DEFAULTS.preload_sa
                               restartPolicy = "OnFailure"
