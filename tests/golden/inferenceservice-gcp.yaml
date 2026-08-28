@@ -282,8 +282,7 @@ spec:
         - mountPath: /dev/shm
           name: shm
       nodeSelector:
-        karpenter.sh/nodepool: gpu-l4
-      runtimeClassName: nvidia
+        cloud.google.com/compute-class: gpu-l4
       securityContext:
         fsGroup: 1001
         runAsNonRoot: true
@@ -295,6 +294,9 @@ spec:
       tolerations:
       - effect: NoSchedule
         key: nvidia.com/gpu
+        operator: Exists
+      - effect: NoSchedule
+        key: node.cilium.io/agent-not-ready
         operator: Exists
       volumes:
       - name: models
