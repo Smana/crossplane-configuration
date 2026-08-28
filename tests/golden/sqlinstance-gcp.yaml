@@ -33,6 +33,8 @@ spec:
   bucketRoles:
   - bucket: ogenki-435905-ogenki-cnpg-backups
     role: roles/storage.objectAdmin
+  - bucket: ogenki-435905-ogenki-cnpg-backups
+    role: roles/storage.legacyBucketReader
   serviceAccount:
     name: xplane-gcp-db-cnpg-cluster
 ---
