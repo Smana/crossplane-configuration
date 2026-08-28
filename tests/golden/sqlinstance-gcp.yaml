@@ -130,11 +130,11 @@ metadata:
 spec:
   data:
   - remoteRef:
-      key: cnpg/xplane-gcp-db/roles/myapp-user
+      key: cnpg-xplane-gcp-db-roles-myapp-user
       property: username
     secretKey: username
   - remoteRef:
-      key: cnpg/xplane-gcp-db/roles/myapp-user
+      key: cnpg-xplane-gcp-db-roles-myapp-user
       property: password
     secretKey: password
   refreshInterval: 30m
