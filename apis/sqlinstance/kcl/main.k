@@ -774,10 +774,39 @@ if oxr.spec.backup?.schedule:
             # deliberately, so a claim cannot grant an identity to another
             # team's workload.
             serviceAccount = {name = oxr.metadata.name + "-cnpg-cluster"}
-            bucketRoles = [{
-                bucket = oxr.spec.backup.bucketName
-                role = "roles/storage.objectAdmin"
-            }]
+            # TWO roles on the same bucket, and the second is not optional.
+            #
+            # roles/storage.objectAdmin carries storage.objects.* and NO
+            # storage.buckets.* at all. barman-cloud calls storage.buckets.get
+            # before it archives, so with objectAdmin alone every WAL push and
+            # every base backup returns:
+            #
+            #   403 storage.buckets.get denied (or it may not exist)
+            #
+            # which is ambiguous between "no permission" and "no bucket", and
+            # sends you looking for a bucket that is sitting right there. On
+            # gcp-0, 2026-08-28, that took ContinuousArchiving to False at 08:45Z
+            # and left a ScheduledBackup in phase=started for the rest of the
+            # day, while the first manual backups had already succeeded -- they
+            # ran before the identity was in the path, so the failure looked like
+            # a regression in something else entirely.
+            #
+            # legacyBucketReader is the narrowest role that grants
+            # storage.buckets.get. Its "legacy" name is Google's, not a
+            # deprecation: it is the bucket-metadata half of the old ACL model
+            # and remains the documented least-privilege way to add exactly this
+            # permission. roles/storage.admin would also work and is far wider --
+            # it can delete the bucket.
+            bucketRoles = [
+                {
+                    bucket = oxr.spec.backup.bucketName
+                    role = "roles/storage.objectAdmin"
+                }
+                {
+                    bucket = oxr.spec.backup.bucketName
+                    role = "roles/storage.legacyBucketReader"
+                }
+            ]
             if oxr.spec.managementPolicies:
                 managementPolicies = oxr.spec.managementPolicies
         }
