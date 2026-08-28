@@ -8,10 +8,26 @@ envConfig = option("params").ctx["apiextensions.crossplane.io/environment"]
 # This file is the SINGLE source for both clouds: composition-aws.yaml and
 # composition-gcp.yaml are generated from it, differing only in name, provider
 # label, and which EnvironmentConfig they select (eks-environment vs
-# gke-environment). Of 800-odd lines, exactly two things are cloud-specific --
-# where backups are written, and what identity writes them. Everything else, the
-# CNPG Cluster included, is already neutral.
+# gke-environment). Of 800-odd lines, exactly three things are cloud-specific --
+# where backups are written, what identity writes them, and how a secret-store
+# key is spelled. Everything else, the CNPG Cluster included, is already
+# neutral.
 _cloud = envConfig?.cloud
+
+# Separator for secret-store keys, and the third cloud-specific thing in this
+# file.
+#
+# AWS Secrets Manager accepts a slash, so `cnpg/<instance>/roles/<owner>` reads
+# like a path there. GCP Secret Manager does NOT: a secret ID must match
+# `[A-Za-z0-9_-]+`, so a slash-separated key names a secret that CANNOT EXIST.
+# External Secrets reports `could not get secret data from provider` and the
+# workload waiting on it sits in CreateContainerConfigError, naming a Kubernetes
+# Secret rather than the store key that could not be read.
+#
+# Observed on a live GKE cluster on 2026-08-28: xplane-harbor-cnpg-registry and
+# xplane-zitadel-cnpg-superuser both unresolvable, while every one of the 22
+# secrets actually in that project is dash-separated.
+_secretSep = "-" if _cloud == "gcp" else "/"
 
 _region = envConfig.region
 
@@ -438,14 +454,14 @@ if oxr.spec.databases:
                 {
                     secretKey = "username"
                     remoteRef = {
-                        key = "cnpg/" + oxr.metadata.name + "/roles/" + db.owner
+                        key = "cnpg" + _secretSep + oxr.metadata.name + _secretSep + "roles" + _secretSep + db.owner
                         property = "username"
                     }
                 }
                 {
                     secretKey = "password"
                     remoteRef = {
-                        key = "cnpg/" + oxr.metadata.name + "/roles/" + db.owner
+                        key = "cnpg" + _secretSep + oxr.metadata.name + _secretSep + "roles" + _secretSep + db.owner
                         property = "password"
                     }
                 }
@@ -611,14 +627,14 @@ if oxr.spec.createSuperuser:
                     {
                         secretKey = "username"
                         remoteRef = {
-                            key = "cnpg/" + oxr.metadata.name + "/superuser"
+                            key = "cnpg" + _secretSep + oxr.metadata.name + _secretSep + "superuser"
                             property = "username"
                         }
                     }
                     {
                         secretKey = "password"
                         remoteRef = {
-                            key = "cnpg/" + oxr.metadata.name + "/superuser"
+                            key = "cnpg" + _secretSep + oxr.metadata.name + _secretSep + "superuser"
                             property = "password"
                         }
                     }
