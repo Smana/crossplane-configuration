@@ -26,6 +26,7 @@ kind: SQLInstance
 metadata:
   name: xplane-gcp-db
   namespace: demo
+  uid: "bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
 spec:
   instances: 1
   size: small

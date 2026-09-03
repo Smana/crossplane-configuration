@@ -258,6 +258,32 @@ if oxr.spec.performanceInsights?.enabled:
         }
     }]
 
+# ── Per-generation WAL archive prefix (#1963) ─────────────────────────────────
+# CNPG refuses to start a cluster whose DESTINATION WAL archive is non-empty: a
+# new cluster opens a new timeline and would emit segment names that already
+# exist in the prefix from the previous database -- same filename, different
+# content, indistinguishable afterwards.
+#
+# Without an explicit serverName, barman defaults to the CNPG Cluster's name,
+# which is derived from the claim and so is IDENTICAL across generations. The
+# buckets outlive their clusters on purpose, so generation N+1 always points at
+# generation N's populated prefix and the check always fails. Measured
+# 2026-09-02: a from-scratch bootstrap wedged two of three clusters at
+# `Cluster is unrecoverable`, ZITADEL never started, and the platform came up
+# with no OIDC clients.
+#
+# The XR uid has exactly the semantics needed: assigned at creation, stable for
+# the life of the XR, new on every recreate.
+#
+# FAIL CLOSED. If the uid is missing we must not fall back to the bare cluster
+# name -- that reinstates the bug while appearing fixed, which is strictly worse
+# than an error.
+_uid = str(oxr.metadata?.uid or "")
+if oxr.spec.backup:
+    assert _uid != "", "SQLInstance {}/{}: metadata.uid is empty, cannot derive a per-generation serverName".format(oxr.metadata.namespace, oxr.metadata.name)
+
+_backupServerName = oxr.metadata.name + "-cnpg-cluster-" + _uid[0:8:]
+
 _items += [
     {
         apiVersion = "postgresql.cnpg.io/v1"
@@ -308,6 +334,8 @@ _items += [
                             isWALArchiver = True
                         parameters = {
                             barmanObjectName = (oxr.metadata.name + "-cnpg-objectstore") if oxr.spec.backup else (oxr.metadata.name + "-cnpg-objectstore-recovery")
+                            if oxr.spec.backup:
+                                serverName = _backupServerName
                         }
                     }
                 ]

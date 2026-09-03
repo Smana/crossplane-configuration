@@ -28,7 +28,7 @@ metadata:
     controller: true
     kind: SQLInstance
     name: my-database
-    uid: ""
+    uid: 11111111-2222-3333-4444-555555555555
 spec:
   bootstrap:
     initdb:
@@ -73,7 +73,7 @@ metadata:
     controller: true
     kind: SQLInstance
     name: my-database
-    uid: ""
+    uid: 11111111-2222-3333-4444-555555555555
 spec:
   data:
   - remoteRef:
@@ -114,7 +114,7 @@ metadata:
     controller: true
     kind: SQLInstance
     name: my-database
-    uid: ""
+    uid: 11111111-2222-3333-4444-555555555555
 spec:
   cluster:
     name: my-database-cnpg-cluster

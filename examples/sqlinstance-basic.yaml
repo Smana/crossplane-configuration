@@ -11,6 +11,7 @@ kind: SQLInstance
 metadata:
   name: my-database
   namespace: demo
+  uid: "11111111-2222-3333-4444-555555555555"
 spec:
   # Minimum required configuration (all three are required by the XRD)
   instances: 1          # Number of PostgreSQL instances; 1 = no HA, fine for dev

@@ -28,7 +28,7 @@ metadata:
     controller: true
     kind: SQLInstance
     name: xplane-gcp-db
-    uid: ""
+    uid: bbbbbbbb-cccc-dddd-eeee-ffffffffffff
 spec:
   bucketRoles:
   - bucket: ogenki-435905-ogenki-cnpg-backups
@@ -53,7 +53,7 @@ metadata:
     controller: true
     kind: SQLInstance
     name: xplane-gcp-db
-    uid: ""
+    uid: bbbbbbbb-cccc-dddd-eeee-ffffffffffff
 spec:
   bootstrap:
     initdb:
@@ -78,6 +78,7 @@ spec:
     name: barman-cloud.cloudnative-pg.io
     parameters:
       barmanObjectName: xplane-gcp-db-cnpg-objectstore
+      serverName: xplane-gcp-db-cnpg-cluster-bbbbbbbb
   resources:
     limits:
       cpu: "1"
@@ -103,7 +104,7 @@ metadata:
     controller: true
     kind: SQLInstance
     name: xplane-gcp-db
-    uid: ""
+    uid: bbbbbbbb-cccc-dddd-eeee-ffffffffffff
 spec:
   backupOwnerReference: self
   cluster:
@@ -128,7 +129,7 @@ metadata:
     controller: true
     kind: SQLInstance
     name: xplane-gcp-db
-    uid: ""
+    uid: bbbbbbbb-cccc-dddd-eeee-ffffffffffff
 spec:
   data:
   - remoteRef:
@@ -169,7 +170,7 @@ metadata:
     controller: true
     kind: SQLInstance
     name: xplane-gcp-db
-    uid: ""
+    uid: bbbbbbbb-cccc-dddd-eeee-ffffffffffff
 spec:
   cluster:
     name: xplane-gcp-db-cnpg-cluster
@@ -191,7 +192,7 @@ metadata:
     controller: true
     kind: SQLInstance
     name: xplane-gcp-db
-    uid: ""
+    uid: bbbbbbbb-cccc-dddd-eeee-ffffffffffff
 spec:
   configuration:
     data:

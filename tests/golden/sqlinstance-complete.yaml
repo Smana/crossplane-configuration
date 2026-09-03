@@ -28,7 +28,7 @@ metadata:
     controller: true
     kind: SQLInstance
     name: production-database
-    uid: ""
+    uid: 66666666-7777-8888-9999-aaaaaaaaaaaa
 spec:
   dir:
     configMapRef:
@@ -53,7 +53,7 @@ metadata:
     controller: true
     kind: SQLInstance
     name: production-database
-    uid: ""
+    uid: 66666666-7777-8888-9999-aaaaaaaaaaaa
 spec:
   interval: 10m
   path: db/migrations
@@ -78,7 +78,7 @@ metadata:
     controller: true
     kind: SQLInstance
     name: production-database
-    uid: ""
+    uid: 66666666-7777-8888-9999-aaaaaaaaaaaa
 spec:
   interval: 10m
   ref:
@@ -100,7 +100,7 @@ metadata:
     controller: true
     kind: SQLInstance
     name: production-database
-    uid: ""
+    uid: 66666666-7777-8888-9999-aaaaaaaaaaaa
 spec:
   cluster:
     name: production-database-cnpg-cluster
@@ -135,7 +135,7 @@ metadata:
     controller: true
     kind: SQLInstance
     name: production-database
-    uid: ""
+    uid: 66666666-7777-8888-9999-aaaaaaaaaaaa
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
@@ -152,7 +152,7 @@ metadata:
     controller: true
     kind: SQLInstance
     name: production-database
-    uid: ""
+    uid: 66666666-7777-8888-9999-aaaaaaaaaaaa
 spec:
   bootstrap:
     initdb:
@@ -195,6 +195,7 @@ spec:
     name: barman-cloud.cloudnative-pg.io
     parameters:
       barmanObjectName: production-database-cnpg-objectstore
+      serverName: production-database-cnpg-cluster-66666666
   postgresql:
     parameters:
       auto_explain.log_analyze: "on"
@@ -257,7 +258,7 @@ metadata:
     controller: true
     kind: SQLInstance
     name: production-database
-    uid: ""
+    uid: 66666666-7777-8888-9999-aaaaaaaaaaaa
 spec:
   backupOwnerReference: self
   cluster:
@@ -282,7 +283,7 @@ metadata:
     controller: true
     kind: SQLInstance
     name: production-database
-    uid: ""
+    uid: 66666666-7777-8888-9999-aaaaaaaaaaaa
 spec:
   data:
   - remoteRef:
@@ -323,7 +324,7 @@ metadata:
     controller: true
     kind: SQLInstance
     name: production-database
-    uid: ""
+    uid: 66666666-7777-8888-9999-aaaaaaaaaaaa
 spec:
   data:
   - remoteRef:
@@ -364,7 +365,7 @@ metadata:
     controller: true
     kind: SQLInstance
     name: production-database
-    uid: ""
+    uid: 66666666-7777-8888-9999-aaaaaaaaaaaa
 spec:
   forProvider:
     policy: |-
@@ -403,7 +404,7 @@ metadata:
     controller: true
     kind: SQLInstance
     name: production-database
-    uid: ""
+    uid: 66666666-7777-8888-9999-aaaaaaaaaaaa
 spec:
   forProvider:
     assumeRolePolicy: |-
@@ -438,7 +439,7 @@ metadata:
     controller: true
     kind: SQLInstance
     name: production-database
-    uid: ""
+    uid: 66666666-7777-8888-9999-aaaaaaaaaaaa
 spec:
   forProvider:
     policyArnSelector:
@@ -542,7 +543,7 @@ metadata:
     controller: true
     kind: SQLInstance
     name: production-database
-    uid: ""
+    uid: 66666666-7777-8888-9999-aaaaaaaaaaaa
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: Database
@@ -559,7 +560,7 @@ metadata:
     controller: true
     kind: SQLInstance
     name: production-database
-    uid: ""
+    uid: 66666666-7777-8888-9999-aaaaaaaaaaaa
 spec:
   cluster:
     name: production-database-cnpg-cluster
@@ -581,7 +582,7 @@ metadata:
     controller: true
     kind: SQLInstance
     name: production-database
-    uid: ""
+    uid: 66666666-7777-8888-9999-aaaaaaaaaaaa
 spec:
   configuration:
     data:
@@ -608,7 +609,7 @@ metadata:
     controller: true
     kind: SQLInstance
     name: production-database
-    uid: ""
+    uid: 66666666-7777-8888-9999-aaaaaaaaaaaa
 spec:
   forProvider:
     clusterName: mycluster-0
@@ -633,7 +634,7 @@ metadata:
     controller: true
     kind: SQLInstance
     name: production-database
-    uid: ""
+    uid: 66666666-7777-8888-9999-aaaaaaaaaaaa
 spec:
   dir:
     configMapRef:
@@ -658,7 +659,7 @@ metadata:
     controller: true
     kind: SQLInstance
     name: production-database
-    uid: ""
+    uid: 66666666-7777-8888-9999-aaaaaaaaaaaa
 spec:
   interval: 10m
   path: db/migrations
@@ -683,7 +684,7 @@ metadata:
     controller: true
     kind: SQLInstance
     name: production-database
-    uid: ""
+    uid: 66666666-7777-8888-9999-aaaaaaaaaaaa
 spec:
   interval: 10m
   ref:

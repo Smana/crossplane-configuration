@@ -160,3 +160,38 @@ test_roles_in_cluster = lambda {
 
     assert True
 }
+
+# ---- Test: the WAL archive prefix is per-generation (#1963) ----
+# barman refuses to start a cluster whose DESTINATION archive is non-empty, and
+# the backup buckets outlive their clusters by design. A serverName equal to the
+# bare cluster name is identical across generations, so every rebuild collides
+# with the previous generation's WALs. The uid suffix is what makes each
+# generation's prefix new and therefore empty.
+test_backup_server_name_is_per_generation = lambda {
+    _oxr = option("params").oxr
+    if _oxr.spec.backup:
+        clusters = [r for r in items if r.kind == "Cluster"]
+        _plugins = [p for p in clusters[0].spec.plugins if p.name == "barman-cloud.cloudnative-pg.io"]
+        assert len(_plugins) == 1, "expected exactly 1 barman-cloud plugin"
+        _sn = _plugins[0].parameters.serverName
+        _bare = _oxr.metadata.name + "-cnpg-cluster"
+        assert _sn != _bare, "serverName must not be the bare cluster name: that is the shared prefix that breaks every rebuild"
+        assert _sn.startswith(_bare + "-"), "serverName should extend the cluster name, got {}".format(_sn)
+        assert len(_sn) == len(_bare) + 9, "expected an 8-character uid suffix, got {}".format(_sn)
+
+    assert True
+}
+
+# ---- Test: recovery still reads the frozen dated seed, unchanged (#1963) ----
+# The seed is the platform's configuration store -- the ZITADEL directory exists
+# only inside it. The write-side change must not touch the read side.
+test_recovery_server_name_unchanged = lambda {
+    _oxr = option("params").oxr
+    if _oxr.spec.objectStoreRecovery:
+        clusters = [r for r in items if r.kind == "Cluster"]
+        _ecs = [e for e in clusters[0].spec.externalClusters if e.name == _oxr.spec.objectStoreRecovery.path]
+        assert len(_ecs) == 1, "expected exactly 1 externalCluster for the seed"
+        assert _ecs[0].plugin.parameters.serverName == _oxr.spec.objectStoreRecovery.path, "recovery must keep reading the dated seed path verbatim"
+
+    assert True
+}

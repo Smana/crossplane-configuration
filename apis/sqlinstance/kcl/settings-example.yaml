@@ -9,6 +9,7 @@ kcl_options:
         metadata:
           name: "myname"
           namespace: "myns"
+          uid: "a1b2c3d4-5e6f-7890-abcd-ef1234567890"
         spec:
           instances: 3
           size: "small"
