@@ -65,8 +65,12 @@ test_backup_resources = lambda {
         # SPEC-010: plugin-based backup, not the in-tree barmanObjectStore method
         assert backups[0].spec.method == "plugin", "ScheduledBackup must use method=plugin"
         assert backups[0].spec.pluginConfiguration.name == "barman-cloud.cloudnative-pg.io"
-        # ObjectStore CR carries the S3 config + retention (moved off the Cluster)
-        objectstores = [r for r in items if r.kind == "ObjectStore"]
+
+        # ObjectStore CR carries the S3 config + retention (moved off the Cluster).
+        # Scoped by name, not just kind: when objectStoreRecovery is also set (the
+        # real zitadel/harbor pairing), a second ObjectStore exists for the
+        # recovery source and a bare kind-filter would over-count.
+        objectstores = [r for r in items if r.kind == "ObjectStore" and r.metadata.name == _oxr.metadata.name + "-cnpg-objectstore"]
         assert len(objectstores) == 1, "expected 1 ObjectStore for backup"
         assert objectstores[0].spec.configuration.destinationPath == "s3://" + _oxr.spec.backup.bucketName
         assert objectstores[0].spec.retentionPolicy == _oxr.spec.backup.retentionPolicy
