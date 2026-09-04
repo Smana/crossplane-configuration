@@ -47,6 +47,38 @@ spec:
 The OCI tag is the git tag verbatim, `v`-prefixed. One spelling for the git tag,
 the published package, and the `dependsOn` constraint.
 
+### You must install the functions yourself
+
+These packages deliberately do **not** declare Composition functions in
+`dependsOn`. Install them alongside the Configuration:
+
+| Function | Used by |
+|---|---|
+| `xpkg.upbound.io/crossplane-contrib/function-kcl` | every Composition |
+| `xpkg.crossplane.io/crossplane-contrib/function-auto-ready` | every Composition's `ready` step |
+| `xpkg.crossplane.io/crossplane-contrib/function-environment-configs` | `-aws` and `-gcp` Compositions |
+
+**Why not `dependsOn`?** Because most consumers already pin these functions
+themselves, and declaring them here as well produces *two* `Function` resources
+for one package. Crossplane keys its dependency graph on package source, so two
+nodes with the same source make the graph fail to initialise and every
+Configuration goes unhealthy:
+
+```
+cannot initialize dependency graph from the packages in the lock:
+node xpkg.crossplane.io/crossplane-contrib/function-auto-ready already exists
+```
+
+It is a race — Crossplane only creates its own copy when it resolves before
+noticing the existing one — so it passes often enough to look fine and then
+wedges a from-scratch install. Verified on a live cluster that Crossplane does
+not dedupe by source: adding a second `Function` for an already-satisfied
+package took every Configuration unhealthy within seconds, and removing it
+restored them.
+
+Pinning the functions yourself is also stricter than the `>=` floors this
+package used to declare. See Smana/cloud-native-ref#1971.
+
 ## Releasing
 
 Releases are cut by pushing a tag; nothing publishes from `main`.

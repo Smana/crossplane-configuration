@@ -13,8 +13,30 @@ metadata:
 spec:
   crossplane:
     version: ">=v2.0.0-0"
-  dependsOn:
-    - function: xpkg.upbound.io/crossplane-contrib/function-kcl
-      version: ">=v0.12.1"
-    - function: xpkg.crossplane.io/crossplane-contrib/function-auto-ready
-      version: ">=v0.7.0"
+  # NO function dependsOn — deliberately. See Smana/cloud-native-ref#1971.
+  #
+  # Declaring a function here AND installing it as a pinned `Function` in the
+  # consuming repo produces TWO Function resources for one package. Crossplane
+  # keys its dependency graph on package source, so two nodes with the same
+  # source make the graph fail to initialise and every Configuration goes
+  # unhealthy:
+  #
+  #   cannot initialize dependency graph from the packages in the lock:
+  #   node xpkg.crossplane.io/crossplane-contrib/function-auto-ready already exists
+  #
+  # It is a race — Crossplane only creates its own copy when it resolves before
+  # noticing the existing one — so it passes often enough to look fixed. It
+  # wedged a from-scratch bootstrap on 2026-09-04: no Composition could run, so
+  # no EPI reconciled, so infrastructure never applied and the platform came up
+  # with no identity provider.
+  #
+  # Verified on a live cluster that Crossplane does NOT dedupe by source: adding
+  # a second Function for an already-satisfied package took both Configurations
+  # unhealthy within seconds, and removing it restored them. Ordering cannot fix
+  # that; only having one declaration can.
+  #
+  # The consuming repo pins these functions to EXACT versions
+  # (infrastructure/base/crossplane/functions/), which is stricter than the
+  # `>=` floors declared here ever were. Adopters installing this package
+  # outside that repo must install function-kcl and function-auto-ready
+  # themselves.
