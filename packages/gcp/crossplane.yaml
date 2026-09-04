@@ -28,14 +28,17 @@ spec:
     # comment used to describe.
     - configuration: ghcr.io/smana/crossplane-configuration-core
       version: ">=v0.3.0"
-    # Every function the Composition's pipeline names is declared HERE, not
-    # inherited. function-kcl and function-auto-ready reach a cluster through
-    # -core's own dependsOn today, so this resolves either way — but relying on
-    # that makes a change to -core's dependencies break GCP silently, and makes
-    # this package's requirements unreadable from its own manifest.
-    - function: xpkg.crossplane.io/crossplane-contrib/function-environment-configs
-      version: ">=v0.7.2"
-    - function: xpkg.upbound.io/crossplane-contrib/function-kcl
-      version: ">=v0.12.1"
-    - function: xpkg.crossplane.io/crossplane-contrib/function-auto-ready
-      version: ">=v0.7.0"
+    # The function dependsOn entries that used to live here are removed
+    # deliberately. See Smana/cloud-native-ref#1971 and the longer note in
+    # packages/core/crossplane.yaml.
+    #
+    # This package previously declared all three functions explicitly, on the
+    # reasoning that inheriting them through -core made GCP's requirements
+    # unreadable from its own manifest. That reasoning was sound, and it is
+    # exactly what makes the duplication worse here: three declared functions,
+    # three chances for the consuming repo's pinned Function to collide with a
+    # Crossplane-created one, three ways to wedge the dependency graph.
+    #
+    # The functions a Composition's pipeline names are now documented in the
+    # README rather than declared as dependencies, so the requirement is still
+    # readable without being installable twice.
