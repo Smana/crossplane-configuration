@@ -18,6 +18,7 @@ kind: SQLInstance
 metadata:
   name: production-database
   namespace: production
+  uid: "66666666-7777-8888-9999-aaaaaaaaaaaa"
 spec:
   # ============================================================================
   # Cluster Configuration

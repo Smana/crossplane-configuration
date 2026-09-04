@@ -9,6 +9,7 @@ kcl_options:
         metadata:
           name: "myname"
           namespace: "myns"
+          uid: "a1b2c3d4-5e6f-7890-abcd-ef1234567890"
         spec:
           instances: 3
           size: "small"
@@ -19,6 +20,9 @@ kcl_options:
             schedule: "0 0 * * *"
             bucketName: "myname-rds-instance-backups"
             retentionPolicy: "10d"
+          objectStoreRecovery:
+            bucketName: "myname-rds-instance-backups"
+            path: "myname-20260101"
           initSQL: |
             CREATE EXTENSION pg_stat_statements;
             CREATE EXTENSION pg_trgm;

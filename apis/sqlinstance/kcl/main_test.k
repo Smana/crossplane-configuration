@@ -65,8 +65,12 @@ test_backup_resources = lambda {
         # SPEC-010: plugin-based backup, not the in-tree barmanObjectStore method
         assert backups[0].spec.method == "plugin", "ScheduledBackup must use method=plugin"
         assert backups[0].spec.pluginConfiguration.name == "barman-cloud.cloudnative-pg.io"
-        # ObjectStore CR carries the S3 config + retention (moved off the Cluster)
-        objectstores = [r for r in items if r.kind == "ObjectStore"]
+
+        # ObjectStore CR carries the S3 config + retention (moved off the Cluster).
+        # Scoped by name, not just kind: when objectStoreRecovery is also set (the
+        # real zitadel/harbor pairing), a second ObjectStore exists for the
+        # recovery source and a bare kind-filter would over-count.
+        objectstores = [r for r in items if r.kind == "ObjectStore" and r.metadata.name == _oxr.metadata.name + "-cnpg-objectstore"]
         assert len(objectstores) == 1, "expected 1 ObjectStore for backup"
         assert objectstores[0].spec.configuration.destinationPath == "s3://" + _oxr.spec.backup.bucketName
         assert objectstores[0].spec.retentionPolicy == _oxr.spec.backup.retentionPolicy
@@ -157,6 +161,41 @@ test_roles_in_cluster = lambda {
         clusters = [r for r in items if r.kind == "Cluster"]
         managedRoles = clusters[0].spec.managed.roles
         assert len(managedRoles) == len(_oxr.spec.roles), "expected {} managed roles, got {}".format(len(_oxr.spec.roles), len(managedRoles))
+
+    assert True
+}
+
+# ---- Test: the WAL archive prefix is per-generation (#1963) ----
+# barman refuses to start a cluster whose DESTINATION archive is non-empty, and
+# the backup buckets outlive their clusters by design. A serverName equal to the
+# bare cluster name is identical across generations, so every rebuild collides
+# with the previous generation's WALs. The uid suffix is what makes each
+# generation's prefix new and therefore empty.
+test_backup_server_name_is_per_generation = lambda {
+    _oxr = option("params").oxr
+    if _oxr.spec.backup:
+        clusters = [r for r in items if r.kind == "Cluster"]
+        _plugins = [p for p in clusters[0].spec.plugins if p.name == "barman-cloud.cloudnative-pg.io"]
+        assert len(_plugins) == 1, "expected exactly 1 barman-cloud plugin"
+        _sn = _plugins[0].parameters.serverName
+        _bare = _oxr.metadata.name + "-cnpg-cluster"
+        assert _sn != _bare, "serverName must not be the bare cluster name: that is the shared prefix that breaks every rebuild"
+        assert _sn.startswith(_bare + "-"), "serverName should extend the cluster name, got {}".format(_sn)
+        assert len(_sn) == len(_bare) + 9, "expected an 8-character uid suffix, got {}".format(_sn)
+
+    assert True
+}
+
+# ---- Test: recovery still reads the frozen dated seed, unchanged (#1963) ----
+# The seed is the platform's configuration store -- the ZITADEL directory exists
+# only inside it. The write-side change must not touch the read side.
+test_recovery_server_name_unchanged = lambda {
+    _oxr = option("params").oxr
+    if _oxr.spec.objectStoreRecovery:
+        clusters = [r for r in items if r.kind == "Cluster"]
+        _ecs = [e for e in clusters[0].spec.externalClusters if e.name == _oxr.spec.objectStoreRecovery.path]
+        assert len(_ecs) == 1, "expected exactly 1 externalCluster for the seed"
+        assert _ecs[0].plugin.parameters.serverName == _oxr.spec.objectStoreRecovery.path, "recovery must keep reading the dated seed path verbatim"
 
     assert True
 }
