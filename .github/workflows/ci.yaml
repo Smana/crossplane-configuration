@@ -67,3 +67,136 @@ jobs:
       # repo does not control, at render time.
       - name: Packages are self-contained
         run: ./scripts/check_packages.sh
+
+  # WHY A PRE-RELEASE CHANNEL EXISTS
+  #
+  # A composition change cannot be tested by reading it. It has to be pinned in a
+  # consuming cluster and rendered against real claims. Until this job existed the
+  # only artifact-producing path was release.yaml, which fires on `v*` tags — so
+  # every attempt at a fix had to become a permanent, public release before anyone
+  # could try it. The tag history shows exactly what that costs: v0.1.0 through
+  # v0.4.6 in ten days, five of them on 2026-08-28 alone. Those patch numbers are
+  # not features; they are debugging iterations, published forever.
+  #
+  # This job publishes a throwaway package per pull request instead, so the version
+  # number goes back to meaning "a release" rather than "an attempt".
+  prerelease:
+    name: Publish a pre-release package for this PR
+    # Only after every gate above has passed. A package that failed render
+    # equivalence is worse than no package: it gets pinned somewhere and the
+    # failure resurfaces as a cluster problem instead of a CI one.
+    needs: check
+    # Fork PRs get a read-only GITHUB_TOKEN, so `packages: write` is not grantable
+    # and the push would fail. Skip cleanly rather than red-X every fork PR. The
+    # alternative, `pull_request_target`, runs untrusted PR code with write
+    # credentials — not worth a convenience.
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # scoped to this job; the workflow default stays read-only
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          # Tags are needed to derive the next version, and actions/checkout does
+          # a shallow clone by default — without this, `git tag` returns nothing
+          # and every PR would publish v0.0.1-pr<N>.
+          fetch-depth: 0
+
+      - name: Install mise-managed tools
+        uses: jdx/mise-action@v3
+
+      - name: Install the flux-schema plugin
+        run: flux plugin install schema@0.11.0
+
+      - name: Install Python dependencies
+        run: python3 -m pip install --quiet --disable-pip-version-check pyyaml pytest
+
+      # Semver ordering is the point of the shape v<next-patch>-pr<N>.<sha>:
+      # 0.4.7-pr20.a1b2c3d sorts AFTER the released 0.4.6 and BEFORE a future
+      # 0.4.7, so a pre-release can never be mistaken for, or outrank, a real
+      # release. The short sha makes each push its own immutable tag, so a pin
+      # names one specific attempt rather than silently moving under you.
+      - name: Derive the pre-release version
+        id: v
+        run: |
+          latest="$(git tag --list 'v*' --sort=-v:refname | head -1)"
+          [ -n "$latest" ] || latest="v0.0.0"
+          base="${latest#v}"
+          major="${base%%.*}"
+          rest="${base#*.}"
+          minor="${rest%%.*}"
+          patch="${rest##*.}"
+          version="v${major}.${minor}.$((patch + 1))-pr${{ github.event.pull_request.number }}.$(git rev-parse --short HEAD)"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "derived ${version} from latest tag ${latest}"
+
+      # WITHOUT THIS, A PRE-RELEASE SILENTLY TESTS THE WRONG THING.
+      #
+      # `task push` publishes every package at one version, but -aws and -gcp
+      # declare `crossplane-configuration-core version: ">=v0.3.0"`, and a semver
+      # constraint with no prerelease component does not match prerelease
+      # versions. So a pre-release -aws would resolve -core to the newest RELEASE
+      # instead of its own sibling.
+      #
+      # For a PR that only touches Compositions that is harmless (core is
+      # unchanged). For a PR that adds an XRD field in -core and a Composition in
+      # -aws that reads it, you would be testing the new Composition against the
+      # OLD XRD -- which is precisely the version skew packages/aws/crossplane.yaml
+      # warns about: "claims rejected, with nothing naming the version skew as the
+      # cause". A testing mechanism that quietly tests the wrong pair is worse than
+      # none.
+      #
+      # So for pre-release builds only, pin the intra-repo dependency to this exact
+      # version. An exact constraint carrying a prerelease DOES match it. Edited in
+      # place with awk rather than a YAML round-trip because these manifests are
+      # heavily commented and the comments are the documentation.
+      - name: Pin intra-repo dependencies to this pre-release
+        run: |
+          for f in packages/*/crossplane.yaml; do
+            awk -v v="${{ steps.v.outputs.version }}" '
+              /- configuration: .*crossplane-configuration-/ { pin = 1 }
+              pin && /^[[:space:]]*version:/ {
+                sub(/version:.*/, "version: \"" v "\""); pin = 0
+              }
+              { print }
+            ' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+          done
+          echo "--- resulting intra-repo constraints ---"
+          grep -A1 "configuration: .*crossplane-configuration-" packages/*/crossplane.yaml || true
+
+      - name: Build packages
+        run: task build VERSION=${{ steps.v.outputs.version }}
+
+      - name: Packages are self-contained
+        run: ./scripts/check_packages.sh
+
+      # crossplane xpkg push reuses the Docker credential store; the CLI has no
+      # `login` subcommand of its own.
+      - name: Push packages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          task push VERSION=${{ steps.v.outputs.version }}
+
+      # Printed to the job summary rather than posted as a PR comment: a comment
+      # needs `pull-requests: write`, and one more write scope is not worth saving
+      # a click.
+      - name: How to test this build
+        run: |
+          {
+            echo "### Pre-release package"
+            echo
+            echo '```yaml'
+            echo "  package: ghcr.io/smana/crossplane-configuration-aws:${{ steps.v.outputs.version }}"
+            echo '```'
+            echo
+            echo "Pin that in \`infrastructure/base/crossplane/configuration-aws/configuration-packages.yaml\`"
+            echo "in cloud-native-ref to test this PR against a live cluster."
+            echo
+            echo "Throwaway build — cut a \`v*\` tag on main for the real release."
+          } >> "$GITHUB_STEP_SUMMARY"
