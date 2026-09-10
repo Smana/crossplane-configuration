@@ -1381,7 +1381,7 @@ spec:
                 # External Secrets configuration
                 externalSecrets:
                   type: array
-                  description: Create ExternalSecrets from AWS Secrets Manager (imports all keys from each secret path using dataFrom)
+                  description: Create ExternalSecrets from a ClusterSecretStore (imports all keys from each secret path using dataFrom)
                   items:
                     type: object
                     properties:
@@ -1390,10 +1390,25 @@ spec:
                         description: Kubernetes Secret name (should match what's referenced in env/envFrom)
                       remoteRef:
                         type: string
-                        description: Path to secret in AWS Secrets Manager (e.g., "apps/myapp/secrets")
+                        description: |
+                          Path to the secret within the chosen store. For the cloud
+                          managed store this is the full key ("apps/myapp/secrets");
+                          for an OpenBao store it is relative to that store's mount
+                          ("myapp/config" under the apps/ mount), because the store
+                          already carries the mount.
+                      store:
+                        type: string
+                        description: |
+                          ClusterSecretStore to read from. Defaults to the cloud
+                          managed store, so a claim written before this field
+                          existed is unaffected. Set "openbao-apps" to read the
+                          OpenBao apps/ mount, where a secret is owned by the app's
+                          own ZITADEL group rather than by whoever holds cloud
+                          credentials.
+                        default: "clustersecretstore"
                       refreshInterval:
                         type: string
-                        description: How often to refresh from AWS Secrets Manager
+                        description: How often to re-read the secret from the store
                         pattern: "^[0-9]+(s|m|h)$"
                         default: "1h"
                     required:

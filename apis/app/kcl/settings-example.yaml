@@ -248,9 +248,13 @@ kcl_options:
                   }
                 ]
           externalSecrets:
+            # No `store`: falls back to the cloud managed store, which is what
+            # every claim written before the field existed gets.
             - name: app-secrets-all
               remoteRef: apps/myapp/secrets-all
               refreshInterval: 1h
+            # An explicit store. `remoteRef` is relative to that store's mount.
             - name: app-secrets
-              remoteRef: apps/myapp/secrets
+              remoteRef: myapp/secrets
+              store: openbao-apps
               refreshInterval: 30m
