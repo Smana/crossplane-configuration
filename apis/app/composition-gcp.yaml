@@ -1341,8 +1341,18 @@ spec:
               _items += _gcsBucket + _gcsIdentity
 
           # External Secrets
-          # Create ExternalSecrets from AWS Secrets Manager using dataFrom pattern
-          # This matches the pattern used throughout the codebase for secret management
+          # Create ExternalSecrets from a ClusterSecretStore using the dataFrom pattern.
+          #
+          # `store` names which one. It defaults to `clustersecretstore` -- the cloud
+          # managed store every claim used before the field existed -- so an existing claim
+          # renders byte-identical. A claim reading OpenBao sets it explicitly, e.g.
+          # `store: openbao-apps` with `remoteRef: <app>/<key>` (no mount prefix: the store
+          # is already scoped to one kv-v2 mount).
+          #
+          # The store is named rather than derived because ESO resolves it with the
+          # CONTROLLER's identity, not the claim's. Which store a claim may read is
+          # therefore a platform decision expressed in the store's own auth config, and a
+          # claim naming one it has no business reading simply fails to sync.
           # NOTE: Using intermediate variable to avoid function-kcl duplicate detection bug
           # See: https://github.com/crossplane-contrib/function-kcl/issues/285
           if oxr.spec.externalSecrets:
@@ -1360,7 +1370,7 @@ spec:
                       refreshInterval = secret.refreshInterval or "1h"
                       secretStoreRef = {
                           kind = "ClusterSecretStore"
-                          name = "clustersecretstore"
+                          name = secret.store or "clustersecretstore"
                       }
                       target = {
                           creationPolicy = "Owner"

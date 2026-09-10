@@ -224,6 +224,26 @@ test_external_secrets = lambda {
     assert len(extSecrets) == _expectedCount, "expected {} ExternalSecrets, got {}".format(_expectedCount, len(extSecrets))
 }
 
+# ---- Test: External Secrets resolve their store ----
+# Both branches of `secret.store or "clustersecretstore"`. The fallback is the
+# compatibility guarantee -- a claim written before the field existed must keep
+# reading the cloud managed store -- so a regression there is silent and moves
+# every existing app's secrets to a store that does not hold them.
+test_external_secrets_store = lambda {
+    _oxr = option("params").oxr
+    _declared = _oxr.spec.externalSecrets or []
+    _byName = {r.metadata.name: r for r in items if r.kind == "ExternalSecret"}
+    _wrongStore = ["{} wanted {}, got {}".format(s.name, s.store or "clustersecretstore", _byName[s.name].spec.secretStoreRef.name) for s in _declared if _byName[s.name].spec.secretStoreRef.name != (s.store or "clustersecretstore")]
+    assert len(_wrongStore) == 0, "ExternalSecret store mismatch: {}".format(_wrongStore)
+    _wrongKind = [s.name for s in _declared if _byName[s.name].spec.secretStoreRef.kind != "ClusterSecretStore"]
+    assert len(_wrongKind) == 0, "ExternalSecrets must reference a ClusterSecretStore: {}".format(_wrongKind)
+
+    # Guard the assertions above against a fixture that exercises only one branch
+    # and passes vacuously.
+    assert len([s for s in _declared if s.store]) > 0, "fixture must exercise an explicit store"
+    assert len([s for s in _declared if not s.store]) > 0, "fixture must exercise the default store"
+}
+
 # ---- Test: Composition-resource-name annotations on all resources ----
 test_composition_annotations = lambda {
     _name = option("params").oxr.metadata.name
