@@ -500,13 +500,21 @@ spec:
 
           # Sidecar = the reduced extra-container build plus two OPT-IN additions:
           # `inheritEnv` (the main container's combined env and envFrom; the sidecar's own
-          # env entries override by name) and per-sidecar probes. With neither set, the
-          # union below is empty, so every existing sidecar renders byte-identically and
-          # the golden fixtures do not move. Built in one expression (function-kcl #285).
+          # env entries override by name, IN PLACE - not appended) and per-sidecar probes.
+          # The in-place replacement matters: Kubernetes only expands `$(VAR)` references
+          # from entries defined EARLIER in the list, so an inherited entry referencing an
+          # overridden var would stop expanding if the override moved to the end. Own
+          # entries with no inherited counterpart are appended after, in their own order.
+          # With neither inheritEnv nor probes set, the union below is empty, so every
+          # existing sidecar renders byte-identically and the golden fixtures do not
+          # move. Built in one expression (function-kcl #285).
           _buildSidecar = lambda c: any -> any {
               _inherit = c?.inheritEnv or False
-              _ownNames = [e.name for e in (c?.env or [])]
-              _env = [e for e in _mainCombinedEnv if e.name not in _ownNames] + (c?.env or [])
+              _ownEnv = c?.env or []
+              _ownNames = [e.name for e in _ownEnv]
+              _mainNames = [e.name for e in _mainCombinedEnv]
+              _ownByName = {e.name: e for e in _ownEnv}
+              _env = [(_ownByName[e.name] if e.name in _ownNames else e) for e in _mainCombinedEnv] + [e for e in _ownEnv if e.name not in _mainNames]
               _envFrom = (oxr.spec.envFrom or []) + (c?.envFrom or [])
               _fallbackPort = c.ports[0].containerPort if c?.ports else None
               _buildExtraContainer(c, True) | {

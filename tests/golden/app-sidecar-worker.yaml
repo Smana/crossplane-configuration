@@ -146,6 +146,8 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: status.podIP
+        - name: OTEL_SERVICE_NAME
+          value: xplane-gallery-demo-worker
         - name: OTEL_SERVICE_VERSION
           value: 2.0.0
         - name: OTEL_DEPLOYMENT_ENVIRONMENT
@@ -164,8 +166,6 @@ spec:
           value: http://vmsingle-victoria-metrics-k8s-stack.observability.svc.cluster.local:8428/opentelemetry/v1/metrics
         - name: LOG_LEVEL
           value: info
-        - name: OTEL_SERVICE_NAME
-          value: xplane-gallery-demo-worker
         envFrom:
         - secretRef:
             name: gallery-config

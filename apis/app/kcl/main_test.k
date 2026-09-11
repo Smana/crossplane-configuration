@@ -562,10 +562,17 @@ test_sidecar_inherit_env_and_probes = lambda {
     worker = [c for c in containers if c.name == "worker"][0]
     shipper = [c for c in containers if c.name == "log-shipper"][0]
     _workerNames = [e.name for e in worker.env]
+    _mainNames = [e.name for e in main.env]
     _missing = [e.name for e in main.env if e.name not in _workerNames]
     assert len(_missing) == 0, "worker should inherit every main env var, missing: {}".format(_missing)
     _users = [e for e in worker.env if e.name == "USER"]
     assert len(_users) == 1 and _users[0].value == "worker", "the sidecar's own USER must win, exactly once, got {}".format(_users)
+    _workerUserIndex = [i for i in range(len(_workerNames)) if _workerNames[i] == "USER"][0]
+    _mainUserIndex = [i for i in range(len(_mainNames)) if _mainNames[i] == "USER"][0]
+    assert _workerUserIndex == _mainUserIndex, "USER override must replace the inherited entry in place, not move to the end"
+    _ownOnlyIndexes = [i for i in range(len(_workerNames)) if _workerNames[i] not in _mainNames]
+    assert len(_ownOnlyIndexes) > 0, "settings-example.yaml's worker must carry an own-only env entry to exercise the append"
+    assert not [i for i in _ownOnlyIndexes if i < len(_mainNames)], "own-only entries must come after every inherited entry"
     assert not any_true([e.name == "POD_NAME" for e in (shipper?.env or [])]), "inheritEnv must default to off"
     assert worker.livenessProbe.httpGet.path == "/healthz" and worker.livenessProbe.httpGet.port == 8081, "worker liveness probe"
     assert worker.readinessProbe.httpGet.path == "/readyz" and worker.readinessProbe.httpGet.port == 8081, "worker readiness probe"
