@@ -1,0 +1,52 @@
+# Web app plus a worker sidecar sharing its pod. The sidecar inherits the main
+# container's environment (OTel, DB, spec.env, envFrom), overrides its own
+# service name, and carries its own probes, whose port falls back to the
+# sidecar's first declared port. The app pushes OTLP metrics only, so the
+# /metrics scrape is switched off.
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: App
+metadata:
+  name: xplane-gallery-demo
+  namespace: apps
+spec:
+  image:
+    repository: ghcr.io/example/gallery
+    tag: "2.0.0"
+  service:
+    port: 8080
+  env:
+    - name: LOG_LEVEL
+      value: info
+  envFrom:
+    - secretRef:
+        name: gallery-config
+        optional: true
+  observability:
+    traces:
+      enabled: true
+      samplingRate: 1.0
+    metrics:
+      enabled: true
+      scrape: false
+  sidecars:
+    - name: worker
+      image: ghcr.io/example/gallery:2.0.0
+      args: ["worker"]
+      inheritEnv: true
+      env:
+        - name: OTEL_SERVICE_NAME
+          value: xplane-gallery-demo-worker
+      ports:
+        - name: worker-health
+          containerPort: 8081
+      livenessProbe:
+        path: /healthz
+      readinessProbe:
+        path: /readyz
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 200m
+          memory: 128Mi
