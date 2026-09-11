@@ -27,8 +27,8 @@ Depending on `spec.type` and which optional blocks are set, the module renders:
   - `worker`: Deployment only (no Service, route, or default probes)
   - `cron`: CronJob (`batch/v1`) driven by `spec.schedule`
 - A dedicated **ServiceAccount** for every type (IAM / EKS Pod Identity).
-- **Multi-container pods**: sidecars[] (ports allowed, optional per-sidecar
-  liveness/readiness probes, opt-in inheritEnv) and initContainers[] (no
+- **Multi-container pods**: `sidecars[]` (ports allowed, optional per-sidecar
+  liveness/readiness probes, opt-in `inheritEnv`) and `initContainers[]` (no
   ports), each inheriting the security defaults unless overridden.
 - **Persistence**: a PVC (`<name>-data`) mounted on the main container.
 - **HorizontalPodAutoscaler** and **PodDisruptionBudget** (Deployment-backed
@@ -109,7 +109,7 @@ sidecars:
   - name: worker
     image: ghcr.io/example/app:1.0.0
     args: ["worker"]
-    inheritEnv: true          # main container's env + envFrom; own entries win by name
+    inheritEnv: true          # main container's env + envFrom; own entries win by name, in place
     env:
       - name: OTEL_SERVICE_NAME
         value: my-app-worker
@@ -120,8 +120,9 @@ sidecars:
     readinessProbe: { path: /readyz }
 ```
 
-- A sidecar probe never uses the main container's port. A named port resolves against the container that owns the probe. With no `port` and no declared sidecar port, the render fails.
-- `inheritEnv` carries the composition defaults (`POD_NAME`, …), the `OTEL_*` variables, the auto-wired `DATABASE_URL`/`REDIS_URL`, `spec.env` and `spec.envFrom`.
+- A sidecar probe never uses the main container's port. A named port resolves against the container that owns the probe. With no `port` and no declared sidecar port, the render fails — except an `exec` probe, which needs no port at all.
+- A failing sidecar `readinessProbe` makes the whole pod `NotReady`, which also drops the main container from the Service endpoints.
+- `inheritEnv` carries the composition defaults (`POD_NAME`, …), the `OTEL_*` variables, the auto-wired `DATABASE_URL`/`REDIS_URL`, `spec.env` and `spec.envFrom`. The sidecar's own entries override inherited ones by name, in place — not appended — which keeps `$(VAR)` references in the inherited entries expanding correctly.
 
 ## Created resources
 
