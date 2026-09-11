@@ -29,8 +29,12 @@ spec:
     #                       rejected on Flux dry-run with ".spec.externalSecrets
     #                       [0].store: field not declared in schema" -- naming
     #                       the field but not the version skew behind it.
+    #
+    # Raised ahead of time since:
+    #   >=v0.6.1 -> v0.7.0  sidecars[].inheritEnv/livenessProbe/readinessProbe and
+    #                       observability.metrics.scrape, read by the App Compositions.
     - configuration: ghcr.io/smana/crossplane-configuration-core
-      version: ">=v0.6.1"
+      version: ">=v0.7.0"
     # NO function dependsOn — deliberately. See Smana/cloud-native-ref#1971 and
     # the longer note in packages/core/crossplane.yaml. Declaring a function
     # here while the consuming repo also pins it creates two Function resources

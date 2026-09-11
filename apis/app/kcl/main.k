@@ -1396,7 +1396,10 @@ if oxr.spec.externalSecrets:
 # than scraped. (SPEC-007 T008)
 # NOTE: Using intermediate variable to avoid function-kcl duplicate detection bug
 # See: https://github.com/crossplane-contrib/function-kcl/issues/285
-if oxr.spec.observability?.metrics?.enabled and _isWeb:
+# `scrape: false` skips the VMServiceScrape for OTLP-push-only apps (their
+# /metrics would 404 forever). Unset keeps the historical behavior, so the
+# existing golden fixtures do not move.
+if oxr.spec.observability?.metrics?.enabled and _isWeb and oxr.spec.observability?.metrics?.scrape != False:
     _vmServiceScrapeResource = [{
         apiVersion = "operator.victoriametrics.com/v1beta1"
         kind = "VMServiceScrape"

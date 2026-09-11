@@ -1524,6 +1524,12 @@ spec:
                           description: Metrics scrape interval
                           pattern: "^[0-9]+(s|m|h)$"
                           default: "30s"
+                        scrape:
+                          type: boolean
+                          description: >-
+                            Render a VMServiceScrape for the metrics path (web apps only). Unset
+                            means true. Set false for apps that only push OTLP metrics, whose
+                            /metrics path does not exist.
                     alertingRules:
                       type: object
                       description: VictoriaMetrics alerting rules (creates VMRule resource)

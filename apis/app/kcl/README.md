@@ -57,6 +57,8 @@ Depending on `spec.type` and which optional blocks are set, the module renders:
 - **Security by default**: non-root, read-only rootfs, dropped capabilities,
   seccomp, EKS Pod Identity.
 - **Observability**: OTLP env wiring, VMServiceScrape, VMRule.
+  `observability.metrics.scrape: false` skips the `VMServiceScrape` for apps
+  that only push OTLP.
 
 ## Module internals
 
@@ -142,7 +144,7 @@ Keyed by their `krm.kcl.dev/composition-resource-name` annotation
 | SQLInstance | `-sqlinstance` | `sqlInstance.enabled` |
 | Bucket (+ BucketVersioning) + EPI | `-s3-bucket`, `-s3-pod-identity` | `s3Bucket.enabled` |
 | ExternalSecret | `-externalsecret-<name>` | per `externalSecrets[]` entry |
-| VMServiceScrape | `-vmservicescrape` | `observability.metrics.enabled` and `type: web` |
+| VMServiceScrape | `-vmservicescrape` | `observability.metrics.enabled` and `type: web`, skipped when `observability.metrics.scrape: false` |
 | VMRule | `-vmrule` | `observability.alertingRules.groups` set |
 
 ### Readiness (`option("params").ocds`)
