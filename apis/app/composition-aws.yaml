@@ -488,8 +488,41 @@ spec:
                   startupProbe = _buildProbe(oxr.spec.healthProbes.startup, _startupProbeDefaults)
           }
 
+          # A sidecar probe needs a port of its own: a named port such as "http" resolves
+          # against the SAME container, so the main container's port can never be
+          # borrowed. Explicit port wins, else the sidecar's first declared port; exec
+          # needs none. A probe with neither is a render error, not a silent bad probe.
+          _sidecarProbeSpec = lambda p: any, fallbackPort: any -> any {
+              _port = p?.port or fallbackPort
+              assert _port or p?.type == "exec", "sidecar probe needs `port` or a declared sidecar port"
+              p | {port = _port} if _port else p
+          }
+
+          # Sidecar = the reduced extra-container build plus two OPT-IN additions:
+          # `inheritEnv` (the main container's combined env and envFrom; the sidecar's own
+          # env entries override by name) and per-sidecar probes. With neither set, the
+          # union below is empty, so every existing sidecar renders byte-identically and
+          # the golden fixtures do not move. Built in one expression (function-kcl #285).
+          _buildSidecar = lambda c: any -> any {
+              _inherit = c?.inheritEnv or False
+              _ownNames = [e.name for e in (c?.env or [])]
+              _env = [e for e in _mainCombinedEnv if e.name not in _ownNames] + (c?.env or [])
+              _envFrom = (oxr.spec.envFrom or []) + (c?.envFrom or [])
+              _fallbackPort = c.ports[0].containerPort if c?.ports else None
+              _buildExtraContainer(c, True) | {
+                  if _inherit and _env:
+                      env = _env
+                  if _inherit and _envFrom:
+                      envFrom = _envFrom
+                  if c?.livenessProbe:
+                      livenessProbe = _buildProbe(_sidecarProbeSpec(c.livenessProbe, _fallbackPort), _livenessProbeDefaults)
+                  if c?.readinessProbe:
+                      readinessProbe = _buildProbe(_sidecarProbeSpec(c.readinessProbe, _fallbackPort), _readinessProbeDefaults)
+              }
+          }
+
           # Sidecar + init container lists (SPEC-007 T007). Sidecars keep ports.
-          _sidecarContainers = [_buildExtraContainer(c, True) for c in (oxr.spec.sidecars or [])]
+          _sidecarContainers = [_buildSidecar(c) for c in (oxr.spec.sidecars or [])]
           _initContainerList = [_buildExtraContainer(c, False) for c in (oxr.spec.initContainers or [])]
 
           # Shared pod template spec used by both Deployment and CronJob (SPEC-007 T007).

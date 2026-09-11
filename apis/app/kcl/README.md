@@ -27,8 +27,9 @@ Depending on `spec.type` and which optional blocks are set, the module renders:
   - `worker`: Deployment only (no Service, route, or default probes)
   - `cron`: CronJob (`batch/v1`) driven by `spec.schedule`
 - A dedicated **ServiceAccount** for every type (IAM / EKS Pod Identity).
-- **Multi-container pods**: `sidecars[]` (ports allowed) and `initContainers[]`
-  (no ports), each inheriting the security defaults unless overridden.
+- **Multi-container pods**: sidecars[] (ports allowed, optional per-sidecar
+  liveness/readiness probes, opt-in inheritEnv) and initContainers[] (no
+  ports), each inheriting the security defaults unless overridden.
 - **Persistence**: a PVC (`<name>-data`) mounted on the main container.
 - **HorizontalPodAutoscaler** and **PodDisruptionBudget** (Deployment-backed
   types only).
@@ -96,6 +97,29 @@ Enforced by the module (constitution-compliant); overridable via
   true`.
 - Writable `/tmp` via an emptyDir (`enableWritableTmp`, default true).
 - Sidecars and init containers inherit the same defaults.
+
+## Sidecars: probes and environment inheritance
+
+Both are opt-in, per sidecar.
+
+```yaml
+sidecars:
+  - name: worker
+    image: ghcr.io/example/app:1.0.0
+    args: ["worker"]
+    inheritEnv: true          # main container's env + envFrom; own entries win by name
+    env:
+      - name: OTEL_SERVICE_NAME
+        value: my-app-worker
+    ports:
+      - name: worker-health
+        containerPort: 8081
+    livenessProbe:  { path: /healthz }   # port falls back to 8081, the first sidecar port
+    readinessProbe: { path: /readyz }
+```
+
+- A sidecar probe never uses the main container's port. A named port resolves against the container that owns the probe. With no `port` and no declared sidecar port, the render fails.
+- `inheritEnv` carries the composition defaults (`POD_NAME`, …), the `OTEL_*` variables, the auto-wired `DATABASE_URL`/`REDIS_URL`, `spec.env` and `spec.envFrom`.
 
 ## Created resources
 

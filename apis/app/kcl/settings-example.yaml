@@ -94,6 +94,23 @@ kcl_options:
               # Per-sidecar securityContext override (override wins per field)
               securityContext:
                 readOnlyRootFilesystem: false
+            - name: worker
+              image: "myrepo/myapp:latest"
+              args: ["worker"]
+              # Opt-in: inherit the main container's combined env; own entries win by name.
+              inheritEnv: true
+              env:
+                - name: USER
+                  value: "worker"
+              ports:
+                - name: worker-health
+                  containerPort: 8081
+              livenessProbe:
+                path: /healthz
+                port: 8081
+              readinessProbe:
+                path: /readyz
+                port: 8081
           # Simple persistence (RWX so it coexists with the HPA below) (SPEC-007)
           persistence:
             enabled: true
