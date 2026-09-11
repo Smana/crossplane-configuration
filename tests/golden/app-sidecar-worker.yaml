@@ -1,0 +1,261 @@
+---
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: App
+metadata:
+  name: xplane-gallery-demo
+  namespace: apps
+status:
+  conditions:
+  - lastTransitionTime: "2024-01-01T00:00:00Z"
+    message: 'Unready resources: xplane-gallery-demo-deployment, xplane-gallery-demo-service,
+      and xplane-gallery-demo-serviceaccount'
+    reason: Creating
+    status: "False"
+    type: Ready
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-gallery-demo-deployment
+  labels:
+    app.kubernetes.io/instance: xplane-gallery-demo
+    app.kubernetes.io/name: xplane-gallery-demo
+    crossplane.io/composite: xplane-gallery-demo
+  name: xplane-gallery-demo
+  namespace: apps
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: xplane-gallery-demo
+    uid: ""
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: xplane-gallery-demo
+      app.kubernetes.io/name: xplane-gallery-demo
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: xplane-gallery-demo
+        app.kubernetes.io/name: xplane-gallery-demo
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - env:
+        - name: USER
+          value: app
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: OTEL_SERVICE_NAME
+          value: xplane-gallery-demo
+        - name: OTEL_SERVICE_VERSION
+          value: 2.0.0
+        - name: OTEL_DEPLOYMENT_ENVIRONMENT
+          value: production
+        - name: OTEL_TRACES_ENABLED
+          value: "true"
+        - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+          value: http://victoria-traces-vt-single-server.observability.svc.cluster.local:10428/insert/opentelemetry/v1/traces
+        - name: OTEL_TRACES_SAMPLER
+          value: parentbased_traceidratio
+        - name: OTEL_TRACES_SAMPLER_ARG
+          value: "1"
+        - name: OTEL_METRICS_ENABLED
+          value: "true"
+        - name: OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
+          value: http://vmsingle-victoria-metrics-k8s-stack.observability.svc.cluster.local:8428/opentelemetry/v1/metrics
+        - name: LOG_LEVEL
+          value: info
+        envFrom:
+        - secretRef:
+            name: gallery-config
+            optional: true
+        image: ghcr.io/example/gallery:2.0.0
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 3
+        name: xplane-gallery-demo
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /readyz
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
+      - args:
+        - worker
+        env:
+        - name: USER
+          value: app
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: OTEL_SERVICE_VERSION
+          value: 2.0.0
+        - name: OTEL_DEPLOYMENT_ENVIRONMENT
+          value: production
+        - name: OTEL_TRACES_ENABLED
+          value: "true"
+        - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+          value: http://victoria-traces-vt-single-server.observability.svc.cluster.local:10428/insert/opentelemetry/v1/traces
+        - name: OTEL_TRACES_SAMPLER
+          value: parentbased_traceidratio
+        - name: OTEL_TRACES_SAMPLER_ARG
+          value: "1"
+        - name: OTEL_METRICS_ENABLED
+          value: "true"
+        - name: OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
+          value: http://vmsingle-victoria-metrics-k8s-stack.observability.svc.cluster.local:8428/opentelemetry/v1/metrics
+        - name: LOG_LEVEL
+          value: info
+        - name: OTEL_SERVICE_NAME
+          value: xplane-gallery-demo-worker
+        envFrom:
+        - secretRef:
+            name: gallery-config
+            optional: true
+        image: ghcr.io/example/gallery:2.0.0
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 3
+        name: worker
+        ports:
+        - containerPort: 8081
+          name: worker-health
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+        resources:
+          limits:
+            cpu: 200m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: xplane-gallery-demo
+      volumes:
+      - emptyDir: {}
+        name: tmp
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-gallery-demo-service
+  labels:
+    app.kubernetes.io/instance: xplane-gallery-demo
+    app.kubernetes.io/name: xplane-gallery-demo
+    crossplane.io/composite: xplane-gallery-demo
+  name: xplane-gallery-demo
+  namespace: apps
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: xplane-gallery-demo
+    uid: ""
+spec:
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: http
+  selector:
+    app.kubernetes.io/instance: xplane-gallery-demo
+    app.kubernetes.io/name: xplane-gallery-demo
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: xplane-gallery-demo-serviceaccount
+  labels:
+    crossplane.io/composite: xplane-gallery-demo
+  name: xplane-gallery-demo
+  namespace: apps
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: xplane-gallery-demo
+    uid: ""
