@@ -960,8 +960,22 @@ if oxr.spec.route?.enabled == True and _isWeb:
     _privateDomain = envConfig?.privateDomainName or "priv.cloud.ogenki.io"
     _publicDomain = envConfig?.publicDomainName or "cloud.ogenki.io"
     _routeDomainSuffix = "" if oxr.spec.gateway?.enabled else "." + _publicDomain if oxr.spec.route?.internetFacing else "." + _privateDomain
+
     # Detect preview environment from namespace naming convention (preview-pr-<id>)
-    _isPreview = _namespace.startswith("preview-")
+    #
+    # `_namespace` is guarded because it can be Undefined. A claim applied to a
+    # cluster always carries one -- the API server defaults it -- but
+    # `crossplane render` does not, and that is a caller we have: the App
+    # Wizard's render preview builds a claim with no namespace when no stack is
+    # selected yet. Unguarded, this line ended the whole render with
+    # "invalid value 'UndefinedType' to load attribute 'startswith'" instead of
+    # returning resources, and no fixture caught it because every other example
+    # sets a namespace. examples/app-no-namespace.yaml now pins this path.
+    #
+    # Guarding the read rather than defaulting `_namespace` to "" is deliberate:
+    # it keeps unset as unset, so the rendered resources omit the field entirely
+    # instead of carrying `namespace: ""`.
+    _isPreview = _namespace.startswith("preview-") if _namespace else False
     _previewSuffix = "-" + _namespace[8::] if _isPreview else ""
     _fullHostname = oxr.spec.route.hostname + _previewSuffix + _routeDomainSuffix if oxr.spec.route?.hostname else None
 

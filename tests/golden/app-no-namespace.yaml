@@ -1,0 +1,186 @@
+---
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: App
+metadata:
+  name: no-namespace-app
+status:
+  conditions:
+  - lastTransitionTime: "2024-01-01T00:00:00Z"
+    message: 'Unready resources: no-namespace-app-deployment, no-namespace-app-httproute,
+      no-namespace-app-service, and 1 more'
+    reason: Creating
+    status: "False"
+    type: Ready
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: no-namespace-app-deployment
+  labels:
+    app.kubernetes.io/instance: no-namespace-app
+    app.kubernetes.io/name: no-namespace-app
+    crossplane.io/composite: no-namespace-app
+  name: no-namespace-app
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: no-namespace-app
+    uid: ""
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: no-namespace-app
+      app.kubernetes.io/name: no-namespace-app
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: no-namespace-app
+        app.kubernetes.io/name: no-namespace-app
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - env:
+        - name: USER
+          value: app
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        image: ghcr.io/example/no-namespace-app:v1.0.0
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 3
+        name: no-namespace-app
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /readyz
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: no-namespace-app
+      volumes:
+      - emptyDir: {}
+        name: tmp
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: no-namespace-app-httproute
+  labels:
+    crossplane.io/composite: no-namespace-app
+  name: no-namespace-app
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: no-namespace-app
+    uid: ""
+spec:
+  hostnames:
+  - no-namespace-app.priv.aws.ogenki.io
+  parentRefs:
+  - name: platform-tailscale-general
+    namespace: infrastructure
+  rules:
+  - backendRefs:
+    - name: no-namespace-app
+      port: 8080
+    matches:
+    - path:
+        type: PathPrefix
+        value: /
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: no-namespace-app-service
+  labels:
+    app.kubernetes.io/instance: no-namespace-app
+    app.kubernetes.io/name: no-namespace-app
+    crossplane.io/composite: no-namespace-app
+  name: no-namespace-app
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: no-namespace-app
+    uid: ""
+spec:
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: http
+  selector:
+    app.kubernetes.io/instance: no-namespace-app
+    app.kubernetes.io/name: no-namespace-app
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  annotations:
+    crossplane.io/composition-resource-name: no-namespace-app-serviceaccount
+  labels:
+    crossplane.io/composite: no-namespace-app
+  name: no-namespace-app
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: App
+    name: no-namespace-app
+    uid: ""
