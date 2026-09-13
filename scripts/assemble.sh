@@ -35,6 +35,7 @@ cp packages/aws/crossplane.yaml build/aws/crossplane.yaml
 # documentation -- harmless at runtime, actively misleading to read.
 cp examples/app-basic.yaml examples/app-complete.yaml examples/app-cron.yaml \
    examples/app-worker.yaml \
+   examples/app-sidecar-worker.yaml \
    examples/sqlinstance-basic.yaml examples/sqlinstance-complete.yaml \
    examples/inferenceservice-basic.yaml examples/inferenceservice-complete.yaml \
    examples/inferenceservice-endpointpicker.yaml \

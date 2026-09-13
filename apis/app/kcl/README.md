@@ -27,8 +27,9 @@ Depending on `spec.type` and which optional blocks are set, the module renders:
   - `worker`: Deployment only (no Service, route, or default probes)
   - `cron`: CronJob (`batch/v1`) driven by `spec.schedule`
 - A dedicated **ServiceAccount** for every type (IAM / EKS Pod Identity).
-- **Multi-container pods**: `sidecars[]` (ports allowed) and `initContainers[]`
-  (no ports), each inheriting the security defaults unless overridden.
+- **Multi-container pods**: `sidecars[]` (ports allowed, optional per-sidecar
+  liveness/readiness probes, opt-in `inheritEnv`) and `initContainers[]` (no
+  ports), each inheriting the security defaults unless overridden.
 - **Persistence**: a PVC (`<name>-data`) mounted on the main container.
 - **HorizontalPodAutoscaler** and **PodDisruptionBudget** (Deployment-backed
   types only).
@@ -56,6 +57,8 @@ Depending on `spec.type` and which optional blocks are set, the module renders:
 - **Security by default**: non-root, read-only rootfs, dropped capabilities,
   seccomp, EKS Pod Identity.
 - **Observability**: OTLP env wiring, VMServiceScrape, VMRule.
+  `observability.metrics.scrape: false` skips the `VMServiceScrape` for apps
+  that only push OTLP.
 
 ## Module internals
 
@@ -97,6 +100,30 @@ Enforced by the module (constitution-compliant); overridable via
 - Writable `/tmp` via an emptyDir (`enableWritableTmp`, default true).
 - Sidecars and init containers inherit the same defaults.
 
+## Sidecars: probes and environment inheritance
+
+Both are opt-in, per sidecar.
+
+```yaml
+sidecars:
+  - name: worker
+    image: ghcr.io/example/app:1.0.0
+    args: ["worker"]
+    inheritEnv: true          # main container's env + envFrom; own entries win by name, in place
+    env:
+      - name: OTEL_SERVICE_NAME
+        value: my-app-worker
+    ports:
+      - name: worker-health
+        containerPort: 8081
+    livenessProbe:  { path: /healthz }   # port falls back to 8081, the first sidecar port
+    readinessProbe: { path: /readyz }
+```
+
+- A sidecar probe never uses the main container's port. A named port resolves against the container that owns the probe. With no `port` and no declared sidecar port, the render fails — except an `exec` probe, which needs no port at all.
+- A failing sidecar `readinessProbe` makes the whole pod `NotReady`, which also drops the main container from the Service endpoints.
+- `inheritEnv` carries the composition defaults (`POD_NAME`, …), the `OTEL_*` variables, the auto-wired `DATABASE_URL`/`REDIS_URL`, `spec.env` and `spec.envFrom`. The sidecar's own entries override inherited ones by name, in place — not appended — which keeps `$(VAR)` references in the inherited entries expanding correctly.
+
 ## Created resources
 
 Keyed by their `krm.kcl.dev/composition-resource-name` annotation
@@ -118,7 +145,7 @@ Keyed by their `krm.kcl.dev/composition-resource-name` annotation
 | SQLInstance | `-sqlinstance` | `sqlInstance.enabled` |
 | Bucket (+ BucketVersioning) + EPI | `-s3-bucket`, `-s3-pod-identity` | `s3Bucket.enabled` |
 | ExternalSecret | `-externalsecret-<name>` | per `externalSecrets[]` entry |
-| VMServiceScrape | `-vmservicescrape` | `observability.metrics.enabled` and `type: web` |
+| VMServiceScrape | `-vmservicescrape` | `observability.metrics.enabled` and `type: web`, skipped when `observability.metrics.scrape: false` |
 | VMRule | `-vmrule` | `observability.alertingRules.groups` set |
 
 ### Readiness (`option("params").ocds`)
