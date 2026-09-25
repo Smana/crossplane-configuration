@@ -116,17 +116,34 @@ test_pod_shape = lambda {
     assert all c in _all {
         c.securityContext.allowPrivilegeEscalation == False and c.securityContext.readOnlyRootFilesystem == True and c.securityContext.capabilities.drop == ["ALL"] and c.securityContext.seccompProfile.type == "RuntimeDefault" and c.resources.limits.cpu and c.resources.limits.memory
     }
+
+    # Constitution §3.3 (requests AND limits) and §5.3 (liveness AND readiness).
+    assert all c in _all {
+        c.resources.requests.cpu and c.resources.requests.memory and c.livenessProbe and c.readinessProbe
+    }
+    assert _p.containers[0].startupProbe, "the harness also has a startup probe"
+}
+
+_projectsToken = lambda v: any -> bool {
+    _sources = v?.projected?.sources or []
+    any src in _sources {
+        "serviceAccountToken" in src
+    }
 }
 
 test_only_the_proxy_mounts_tokens = lambda {
     _p = _pod(_run({}))
     _proxy = _p.initContainers[0]
     assert _proxy.name == "identity-proxy" and _proxy.restartPolicy == "Always", "native sidecar"
-    assert sorted([m.name for m in _proxy.volumeMounts if m.name.endswith("-token")]) == ["gateway-token", "sts-token"]
+
+    # A token volume is whatever projects a ServiceAccount token, whatever its name.
+    _tokens = sorted([v.name for v in _p.volumes if _projectsToken(v)])
+    assert _tokens == ["gateway-token", "sts-token"]
+    assert sorted([m.name for m in _proxy.volumeMounts if m.name in _tokens]) == _tokens
     _containers = _p.containers
     assert not any c in _containers {
         any m in c.volumeMounts {
-            m.name.endswith("-token")
+            m.name in _tokens
         }
     }, "the harness never holds a token (S5)"
 }
@@ -318,6 +335,8 @@ test_malformed_annotations_are_not_projected = lambda {
     _bad = {"agents.ogenki.io/usage-tokens" = "-5", "agents.ogenki.io/pull-request" = "https://github.com/Evil/cloud-native-ref/pull/1"}
     _fresh = _status(_render(_xr({}, _bad, {}, {}), {}, _DXR))
     assert "usage" not in _fresh and "pullRequest" not in _fresh
+    _trailing = _status(_render(_xr({}, {"agents.ogenki.io/usage-tokens" = "12a"}, {}, {}), {}, _DXR))
+    assert "usage" not in _trailing, "the $ anchor rejects a trailing non-digit"
     _kept = _status(_render(_xr({}, _bad, {}, {usage = {tokens = 42}, pullRequest = "https://github.com/Smana/cloud-native-ref/pull/7"}), {}, _DXR))
     assert _kept.usage.tokens == 42 and _kept.pullRequest == "https://github.com/Smana/cloud-native-ref/pull/7", "the last valid value stays"
 }
