@@ -1,0 +1,32 @@
+---
+# Complete AgentRun: every field, plus the annotations SP3's run meter and
+# factory write, so the golden render proves they are projected into status.
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: AgentRun
+metadata:
+  name: xplane-run-k2m4q7wa
+  namespace: agents
+  labels:
+    agents.ogenki.io/task: t-9f2kq3ma
+  annotations:
+    agents.ogenki.io/usage-tokens: "184223"
+    agents.ogenki.io/pull-request: "https://github.com/Smana/cloud-native-ref/pull/2090"
+spec:
+  role: tester
+  repository: Smana/cloud-native-ref
+  baseRef: agent/t-9f2kq3ma
+  branch: agent/t-9f2kq3ma
+  principal: "system:factory"
+  model: tier-standard
+  dataClass: internal
+  task:
+    url: "https://github.com/Smana/cloud-native-ref/pull/2090"
+  budget:
+    maxTokens: 3000000
+    maxMinutes: 240
+  harness: openhands
+  size: medium
+  egress:
+    profiles: [pypi, golang]
+  roomRef: r-3kq9x2ma
+  queueName: agents-standard
