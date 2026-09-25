@@ -95,6 +95,9 @@ test_pod_shape = lambda {
     assert _p.shareProcessNamespace == False
     assert _p.securityContext.runAsUser == 10001 and _p.securityContext.runAsNonRoot == True
     assert _sbx.spec.podTemplate.metadata.annotations["karpenter.sh/do-not-disrupt"] == "true"
+    # The CNP's endpointSelector matches these exact labels on the pod (C4).
+    assert _sbx.spec.podTemplate.metadata.labels["agents.ogenki.io/run-id"] == "7f3cq2xz"
+    assert _sbx.spec.podTemplate.metadata.labels["agents.ogenki.io/role"] == "implementer"
     _all = _p.containers + _p.initContainers
     assert all c in _all {
         c.securityContext.allowPrivilegeEscalation == False and c.securityContext.readOnlyRootFilesystem == True and c.securityContext.capabilities.drop == ["ALL"] and c.securityContext.seccompProfile.type == "RuntimeDefault" and c.resources.limits.cpu and c.resources.limits.memory

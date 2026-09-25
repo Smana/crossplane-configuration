@@ -1,0 +1,353 @@
+# AgentRun composition: one sandboxed coding-agent run (SP1 of the Agent Factory
+# programme, cloud-native-ref docs/superpowers/specs/2026-09-23-agent-runtime-identity-design.md).
+#
+# Renders, all named xplane-run-<runId>[-suffix] in the claim's namespace:
+#   ServiceAccount       no RBAC anywhere, automount off      (not when revoked)
+#   ConfigMap -task      task, platform rules, run metadata
+#   CiliumNetworkPolicy  default-deny, class-scoped gateway port, FQDN profiles
+#   Sandbox              agents.x-k8s.io/v1beta1 under gVisor (not when revoked)
+# and patches the XR status.
+#
+# Status has ONE writer, this composition (C3). Controllers write annotations;
+# they are validated here before anything reaches status.
+#
+# Conditional resources are single-element lists joined at the end. Nothing is
+# mutated after creation (function-kcl #285).
+import json
+import regex
+
+oxr = option("params").oxr
+ocds = option("params").ocds
+
+# The only place a harness profile becomes an image (S7): the claim never
+# carries one, so bumping a digest is a release of this package.
+_HARNESS_PROFILES = {
+    openhands = {
+        image = "ghcr.io/openhands/agent-server:1.49.5-python@sha256:1e7b08ffef732d6520e0b0048931b6ef425a7742c5fb80a82c9397a285c669eb"
+        port = 8000
+        # agent-server binds 127.0.0.1 unless told otherwise, and kubelet probes
+        # the pod IP. The CNP admits only `host` on this port.
+        args = ["--host", "0.0.0.0", "--port", "8000"]
+    }
+}
+_IDENTITY_PROXY_IMAGE = "docker.io/envoyproxy/envoy:distroless-v1.39.1@sha256:eb2c01c13125d1629637cb4e4cce7207009fb7cc2c8027f9742758549d15b6f4"
+
+# spec.size: CPU request -> limit, 2 GiB per CPU, scratch for /workspace.
+_SIZES = {
+    small = {cpu = ["1", "2"], memory = ["2Gi", "4Gi"], scratch = "10Gi"}
+    medium = {cpu = ["2", "4"], memory = ["4Gi", "8Gi"], scratch = "20Gi"}
+    large = {cpu = ["4", "8"], memory = ["8Gi", "16Gi"], scratch = "40Gi"}
+}
+
+_EGRESS_PROFILES = {
+    github = ["github.com", "api.github.com", "codeload.github.com", "objects.githubusercontent.com", "raw.githubusercontent.com"]
+    pypi = ["pypi.org", "files.pythonhosted.org"]
+    npm = ["registry.npmjs.org"]
+    golang = ["proxy.golang.org", "sum.golang.org"]
+    crates = ["index.crates.io", "static.crates.io"]
+}
+
+# Fully qualified, so ndots:1 sends them to kube-dns as-is and the L7 DNS rule
+# can answer exactly these names (Q4).
+_ROUTER_FQDN = "agent-router.envoy-gateway-system.svc.cluster.local"
+_STS_FQDN = "octo-sts.agent-system.svc.cluster.local"
+_BROKER_FQDN = "room-broker.agent-system.svc.cluster.local"
+
+# One agent-router listener per data class (S6): the port IS the class.
+_ROUTER_PORT = {public = 8080, internal = 8081}
+_PROXY_PORT = {public = 4000, internal = 4002}
+
+_BUDGET_REASONS = ["budget-run", "budget-principal", "budget-fleet"]
+_REVOKE_REASONS = _BUDGET_REASONS + ["manual"]
+
+_CONTAINER_SECURITY = {
+    allowPrivilegeEscalation = False
+    readOnlyRootFilesystem = True
+    runAsNonRoot = True
+    capabilities = {drop = ["ALL"]}
+    seccompProfile = {type = "RuntimeDefault"}
+}
+
+_get = lambda d: any, k: str -> any {
+    d[k] if d and k in d else None
+}
+
+_condition = lambda obj: any, ctype: str -> any {
+    _matches = [c for c in obj?.status?.conditions or [] if c?.type == ctype]
+    _matches[0] if _matches else None
+}
+
+_observed = lambda state: any, key: str -> any {
+    state[key]?.Resource if state and key in state else None
+}
+
+# Phase, top-down (design §2). Revocation and terminal phases latch on the
+# previous status, so removing an annotation never resurrects a run.
+_phaseOf = lambda annotations: any, previous: str, sandbox: any -> str {
+    _revoked = _get(annotations, "agents.ogenki.io/revoked") or ""
+    _finished = _condition(sandbox, "Finished")
+    _ready = _condition(sandbox, "Ready")
+    "BudgetExhausted" if _revoked in _BUDGET_REASONS or previous == "BudgetExhausted" else "Revoked" if _revoked == "manual" or previous == "Revoked" else previous if previous in ["Succeeded", "Failed"] else "Succeeded" if _finished?.status == "True" and _finished?.reason == "PodSucceeded" else "Failed" if _finished?.status == "True" and _finished?.reason == "PodFailed" else "Running" if _ready?.status == "True" else "Pending"
+}
+
+# A malformed annotation is never projected; the last valid value stays.
+_usageTokens = lambda annotations: any, previous: any -> any {
+    _v = _get(annotations, "agents.ogenki.io/usage-tokens")
+    int(_v) if _v and regex.match(_v, "^[0-9]{1,12}$") else previous
+}
+
+_pullRequest = lambda annotations: any, repository: str, previous: any -> any {
+    _v = _get(annotations, "agents.ogenki.io/pull-request")
+    _v if _v and regex.match(_v, "^https://github\\.com/" + repository.replace(".", "\\.") + "/pull/[0-9]+$") else previous
+}
+
+_rulesFor = lambda role: str, runId: str, repository: str, branch: str, baseRef: str -> str {
+    _write = "2. Push only to {}. Never push to any other branch, and never merge.\n3. Open at most one pull request, from {} into {}. If it already exists, update it.\n".format(branch, branch, baseRef)
+    _read = "2. Your repository access is read-only. Do not push. Your final message is your report.\n"
+    "Platform rules for run {} ({}) on {}. The platform enforces each of them independently of you.\n1. Work in /workspace/repo, cloned from {} at {}.\n".format(runId, role, repository, repository, baseRef) + (_write if role == "implementer" else _read) + "4. Every commit carries the trailer \"Agent-Run: {}\". The commit hook adds it.\n5. Never modify .github/workflows/ or .github/chainguard/.\n6. A 429 from the model gateway means the budget is spent: stop and exit.\n".format(runId)
+}
+
+_render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
+    _name = _oxr.metadata.name
+    _ns = _oxr.metadata.namespace
+    assert _ns == "agents", "an AgentRun must live in namespace agents, got {}".format(_ns)
+    assert regex.match(_name, "^xplane-run-[a-z2-7]{8}$"), "an AgentRun name must match ^xplane-run-[a-z2-7]{8}$, got " + _name
+    _runId = _name[11::]
+    _spec = _oxr.spec
+    _role = _spec.role
+    _class = _spec.dataClass
+    _repo = _spec.repository
+    _baseRef = _spec.baseRef or "main"
+    _branch = _spec.branch or "agent/" + _runId
+    _model = _spec.model or "agent-default"
+    _size = _SIZES[_spec.size or "small"]
+    _profile = _HARNESS_PROFILES[_spec.harness or "openhands"]
+    _maxMinutes = _spec.budget?.maxMinutes or 120
+    _profiles = ["github"] + (_spec.egress?.profiles or [])
+    _fqdns = [f for p in _profiles for f in _EGRESS_PROFILES[p]]
+    _roomRef = _spec.roomRef
+    _ann = _oxr.metadata?.annotations or {}
+    _taskLabel = _get(_oxr.metadata?.labels or {}, "agents.ogenki.io/task")
+    _sandbox = _observed(_ocds, _name + "-sandbox")
+    _previous = _oxr.status or {}
+    _phase = _phaseOf(_ann, _previous?.phase or "", _sandbox)
+    _live = _phase not in ["Revoked", "BudgetExhausted"]
+    _revoked = _get(_ann, "agents.ogenki.io/revoked")
+    _finished = _condition(_sandbox, "Finished")
+    _usage = _usageTokens(_ann, _previous?.usage?.tokens)
+    _pr = _pullRequest(_ann, _repo, _previous?.pullRequest)
+    _labels = {
+        "agents.ogenki.io/run-id" = _runId
+        "agents.ogenki.io/role" = _role
+        if _taskLabel:
+            "agents.ogenki.io/task" = _taskLabel
+    }
+    _meta = lambda suffix: str, name: str, ready: bool -> any {
+        {
+            name = name
+            namespace = _ns
+            labels = _labels
+            annotations = {
+                "krm.kcl.dev/composition-resource-name" = _name + "-" + suffix
+                "agents.ogenki.io/principal" = _spec.principal
+                if ready:
+                    "krm.kcl.dev/ready" = "True"
+            }
+        }
+    }
+    _sandboxReady = _condition(_sandbox, "Ready")?.status == "True" or _finished?.status == "True"
+    _serviceAccount = [{
+        apiVersion = "v1"
+        kind = "ServiceAccount"
+        metadata = _meta("sa", _name, _observed(_ocds, _name + "-sa") != None)
+        automountServiceAccountToken = False
+    }] if _live else []
+    _taskConfigMap = [{
+        apiVersion = "v1"
+        kind = "ConfigMap"
+        metadata = _meta("task", _name + "-task", True)
+        data = {
+            "task.md" = _spec.task.text if _spec.task?.text else "Work on {}.\n".format(_spec.task.url)
+            "rules.md" = _rulesFor(_role, _runId, _repo, _branch, _baseRef)
+            "run.json" = json.encode({runId = _runId, role = _role, repository = _repo, baseRef = _baseRef, branch = _branch, dataClass = _class, model = _model, principal = _spec.principal})
+        }
+    }]
+    _dnsNames = [_ROUTER_FQDN, _STS_FQDN] + ([_BROKER_FQDN] if _roomRef else []) + _fqdns
+    _networkPolicy = [{
+        apiVersion = "cilium.io/v2"
+        kind = "CiliumNetworkPolicy"
+        metadata = _meta("cnp", _name, True)
+        spec = {
+            endpointSelector.matchLabels = {"agents.ogenki.io/run-id" = _runId}
+            # Probes only. Nothing ever dials into a sandbox (C4).
+            ingress = [{
+                fromEntities = ["host"]
+                toPorts = [{ports = [{port = str(_profile.port), protocol = "TCP"}, {port = "9901", protocol = "TCP"}]}]
+            }]
+            egress = [
+                {
+                    toEndpoints = [{
+                        matchLabels = {"io.kubernetes.pod.namespace" = "kube-system", "k8s-app" = "kube-dns"}
+                    }]
+                    toPorts = [{
+                        ports = [{port = "53", protocol = "UDP"}, {port = "53", protocol = "TCP"}]
+                        # Answers only these names (S10, T6): no wildcard.
+                        rules.dns = [{matchName = n} for n in _dnsNames]
+                    }]
+                }
+                {
+                    toEndpoints = [{
+                        matchLabels = {"io.kubernetes.pod.namespace" = "envoy-gateway-system", "gateway.envoyproxy.io/owning-gateway-name" = "agent-router"}
+                    }]
+                    toPorts = [{ports = [{port = str(_ROUTER_PORT[_class]), protocol = "TCP"}]}]
+                }
+                {
+                    toEndpoints = [{
+                        matchLabels = {"io.kubernetes.pod.namespace" = "agent-system", "app.kubernetes.io/name" = "octo-sts"}
+                    }]
+                    toPorts = [{ports = [{port = "8080", protocol = "TCP"}]}]
+                }
+                {
+                    toFQDNs = [{matchName = f} for f in _fqdns]
+                    toPorts = [{ports = [{port = "443", protocol = "TCP"}]}]
+                }
+            ] + ([{
+                toEndpoints = [{
+                    matchLabels = {"io.kubernetes.pod.namespace" = "agent-system", "app.kubernetes.io/name" = "room-broker"}
+                }]
+                toPorts = [{ports = [{port = "8443", protocol = "TCP"}]}]
+            }] if _roomRef else [])
+        }
+    }]
+    _podLabels = _labels | ({"kueue.x-k8s.io/queue-name" = _spec.queueName} if _spec.queueName else {})
+    _sandboxResource = [{
+        apiVersion = "agents.x-k8s.io/v1beta1"
+        kind = "Sandbox"
+        metadata = _meta("sandbox", _name, _sandboxReady)
+        spec = {
+            # Nothing ever dials into a sandbox (C4).
+            service = False
+            podTemplate = {
+                metadata = {
+                    labels = _podLabels
+                    annotations = {"karpenter.sh/do-not-disrupt" = "true"}
+                }
+                spec = {
+                    serviceAccountName = _name
+                    automountServiceAccountToken = False
+                    runtimeClassName = "gvisor"
+                    restartPolicy = "Never"
+                    activeDeadlineSeconds = _maxMinutes * 60
+                    enableServiceLinks = False
+                    shareProcessNamespace = False
+                    terminationGracePeriodSeconds = 30
+                    dnsConfig = {options = [{name = "ndots", value = "1"}]}
+                    securityContext = {
+                        runAsNonRoot = True
+                        runAsUser = 10001
+                        runAsGroup = 10001
+                        fsGroup = 10001
+                        seccompProfile = {type = "RuntimeDefault"}
+                    }
+                    # Native sidecar: the ONLY container that mounts the gateway and
+                    # octo-sts tokens (S5). The harness reaches them as localhost ports.
+                    initContainers = [{
+                        name = "identity-proxy"
+                        image = _IDENTITY_PROXY_IMAGE
+                        restartPolicy = "Always"
+                        args = ["-c", "/etc/envoy/envoy.yaml", "--log-level", "warn"]
+                        ports = [{name = "admin", containerPort = 9901, protocol = "TCP"}]
+                        readinessProbe = {httpGet = {path = "/ready", port = 9901}, periodSeconds = 5}
+                        livenessProbe = {httpGet = {path = "/ready", port = 9901}, periodSeconds = 10, failureThreshold = 3}
+                        resources = {requests = {cpu = "50m", memory = "64Mi"}, limits = {cpu = "200m", memory = "128Mi"}}
+                        securityContext = _CONTAINER_SECURITY
+                        volumeMounts = [
+                            {name = "proxy-config", mountPath = "/etc/envoy", readOnly = True}
+                            {name = "gateway-token", mountPath = "/var/run/secrets/agents/gateway", readOnly = True}
+                            {name = "sts-token", mountPath = "/var/run/secrets/agents/sts", readOnly = True}
+                            {name = "proxy-tmp", mountPath = "/tmp"}
+                        ]
+                    }]
+                    containers = [{
+                        name = "harness"
+                        image = _profile.image
+                        args = _profile.args
+                        env = [
+                            {name = "RUN_ID", value = _runId}
+                            {name = "ROLE", value = _role}
+                            {name = "REPOSITORY", value = _repo}
+                            {name = "BASE_REF", value = _baseRef}
+                            {name = "BRANCH", value = _branch}
+                            {name = "MODEL", value = _model}
+                            {name = "DATA_CLASS", value = _class}
+                            {name = "CONVERSATION_ID", value = _oxr.metadata?.uid or ""}
+                            {name = "LLM_BASE_URL", value = "http://127.0.0.1:{}/v1".format(_PROXY_PORT[_class])}
+                            {name = "MCP_URL", value = "http://127.0.0.1:{}/mcp".format(_PROXY_PORT[_class])}
+                            {name = "STS_URL", value = "http://127.0.0.1:4001/sts/exchange"}
+                            {name = "TASK_FILE", value = "/run/agent/task/task.md"}
+                            {name = "RULES_FILE", value = "/run/agent/task/rules.md"}
+                            {name = "HOME", value = "/home/openhands"}
+                        ]
+                        ports = [{name = "http", containerPort = _profile.port, protocol = "TCP"}]
+                        startupProbe = {httpGet = {path = "/ready", port = _profile.port}, periodSeconds = 5, failureThreshold = 60}
+                        readinessProbe = {httpGet = {path = "/ready", port = _profile.port}, periodSeconds = 10}
+                        livenessProbe = {httpGet = {path = "/health", port = _profile.port}, periodSeconds = 20, failureThreshold = 3}
+                        lifecycle.preStop.exec.command = ["/usr/local/bin/git-credential-agent", "revoke"]
+                        resources = {
+                            requests = {cpu = _size.cpu[0], memory = _size.memory[0], "ephemeral-storage" = "1Gi"}
+                            limits = {cpu = _size.cpu[1], memory = _size.memory[1], "ephemeral-storage" = _size.scratch}
+                        }
+                        securityContext = _CONTAINER_SECURITY
+                        volumeMounts = [
+                            {name = "workspace", mountPath = "/workspace"}
+                            {name = "home", mountPath = "/home/openhands"}
+                            {name = "tmp", mountPath = "/tmp"}
+                            {name = "git-cache", mountPath = "/run/agent/git"}
+                            {name = "task", mountPath = "/run/agent/task", readOnly = True}
+                        ]
+                    }]
+                    volumes = [
+                        {name = "gateway-token", projected = {defaultMode = 288, sources = [{
+                            serviceAccountToken = {audience = "agent-router.{}.{}".format(_role, _class), expirationSeconds = 600, path = "token"}
+                        }]}}
+                        {name = "sts-token", projected = {defaultMode = 288, sources = [{
+                            serviceAccountToken = {audience = "octo-sts/{}/{}".format(_repo, _role), expirationSeconds = 600, path = "token"}
+                        }]}}
+                        {name = "proxy-config", configMap = {name = "agent-identity-proxy"}}
+                        {name = "proxy-tmp", emptyDir = {medium = "Memory", sizeLimit = "16Mi"}}
+                        {name = "task", configMap = {name = _name + "-task"}}
+                        {name = "workspace", emptyDir = {sizeLimit = _size.scratch}}
+                        {name = "home", emptyDir = {sizeLimit = "2Gi"}}
+                        {name = "tmp", emptyDir = {sizeLimit = "2Gi"}}
+                        # The GitHub token cache lives in memory only (T3).
+                        {name = "git-cache", emptyDir = {medium = "Memory", sizeLimit = "1Mi"}}
+                    ]
+                }
+            }
+        }
+    }] if _live else []
+    _status = [{
+        **_dxr
+        status: {
+            phase = _phase
+            runId = _runId
+            branch = _branch
+            conversationId = _oxr.metadata?.uid or ""
+            if _sandbox?.metadata?.creationTimestamp:
+                startedAt = _sandbox.metadata.creationTimestamp
+            if _finished?.lastTransitionTime:
+                finishedAt = _finished.lastTransitionTime
+            if _phase == "Failed":
+                reason = "PodFailed"
+            if not _live:
+                reason = _revoked if _revoked in _REVOKE_REASONS else _previous?.reason
+            if _usage != None:
+                usage = {tokens = _usage}
+            if _pr:
+                pullRequest = _pr
+        }
+    }]
+    _serviceAccount + _taskConfigMap + _networkPolicy + _sandboxResource + _status
+}
+
+items = _render(oxr, ocds, option("params").dxr)
