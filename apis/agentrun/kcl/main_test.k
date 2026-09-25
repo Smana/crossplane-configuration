@@ -45,6 +45,20 @@ _sandboxWith = lambda conditions: [any] -> any {
     }
 }
 
+# A Sandbox the composition already suspended: agent-sandbox deleted the pod,
+# so Finished is gone and Ready is False (SandboxSuspended).
+_suspendedSandbox = lambda finishedFor: str -> any {
+    {
+        "xplane-run-7f3cq2xz-sandbox" = {
+            Resource = {
+                metadata = {creationTimestamp = "2026-09-25T10:00:00Z", annotations = {"agents.ogenki.io/finished-phase" = finishedFor}}
+                spec.operatingMode = "Suspended"
+                status.conditions = [{type = "Ready", status = "False", reason = "SandboxSuspended"}]
+            }
+        }
+    }
+}
+
 _phaseFor = lambda annotations: any, status: any, observed: any -> str {
     _status(_render(_xr({}, annotations, {}, status), observed, _DXR)).phase
 }
@@ -271,7 +285,7 @@ test_budget_exhausted_latches_over_a_later_manual_revocation = lambda {
 
 # ---- F2b: a terminal run never gets a fresh ServiceAccount, so a pod
 # agent-sandbox recreates from a finished Sandbox cannot start and run again.
-# Succeeded/Failed keep the Sandbox itself for inspection. ----
+# Succeeded/Failed keep the Sandbox object, suspended (M2). ----
 test_succeeded_run_has_no_service_account_but_keeps_its_sandbox = lambda {
     _res = _render(_xr({}, {}, {}, {phase = "Succeeded"}), {}, _DXR)
     assert [r.kind for r in _res] == ["ConfigMap", "CiliumNetworkPolicy", "Sandbox", "AgentRun"]
@@ -343,4 +357,40 @@ test_proxy_probes_use_the_health_listener = lambda {
     assert _proxy.ports == [{name = "health", containerPort = 9902, protocol = "TCP"}]
     assert _proxy.readinessProbe.httpGet == {path = "/ready", port = 9902}
     assert _proxy.livenessProbe.httpGet == {path = "/ready", port = 9902}
+}
+
+# ---- M2: a finished run is Suspended, stays Ready, and never runs twice ----
+test_finished_run_suspends_its_sandbox = lambda {
+    _live = _kind(_run({}), "Sandbox")[0]
+    assert _live.spec.operatingMode == "Running"
+    assert "agents.ogenki.io/finished-phase" not in _live.metadata.annotations
+    _ok = _kind(_render(_xr({}, {}, {}, {}), _sandboxWith([{type = "Finished", status = "True", reason = "PodSucceeded"}]), _DXR), "Sandbox")[0]
+    assert _ok.spec.operatingMode == "Suspended"
+    assert _ok.metadata.annotations["agents.ogenki.io/finished-phase"] == "Succeeded"
+    _ko = _kind(_render(_xr({}, {}, {}, {}), _sandboxWith([{type = "Finished", status = "True", reason = "PodFailed"}]), _DXR), "Sandbox")[0]
+    assert _ko.spec.operatingMode == "Suspended"
+    assert _ko.metadata.annotations["agents.ogenki.io/finished-phase"] == "Failed"
+}
+
+test_suspended_sandbox_stays_ready = lambda {
+    _res = _render(_xr({}, {}, {}, {phase = "Succeeded"}), _suspendedSandbox("Succeeded"), _DXR)
+    assert _status(_res).phase == "Succeeded"
+    _sbx = _kind(_res, "Sandbox")[0]
+    assert _sbx.metadata.annotations["krm.kcl.dev/ready"] == "True", "Ready=False (SandboxSuspended) must not flap the XR"
+    assert _sbx.spec.operatingMode == "Suspended"
+}
+
+test_lost_status_write_does_not_rerun_the_task = lambda {
+    # Crossplane applied the Suspended Sandbox, then lost the XR status write.
+    _ok = _render(_xr({}, {}, {}, {}), _suspendedSandbox("Succeeded"), _DXR)
+    assert _status(_ok).phase == "Succeeded"
+    assert "reason" not in _status(_ok)
+    assert [r.kind for r in _ok] == ["ConfigMap", "CiliumNetworkPolicy", "Sandbox", "AgentRun"], "no fresh ServiceAccount"
+    assert _kind(_ok, "Sandbox")[0].spec.operatingMode == "Suspended"
+    _ko = _render(_xr({}, {}, {}, {}), _suspendedSandbox("Failed"), _DXR)
+    assert _status(_ko).phase == "Failed" and _status(_ko).reason == "PodFailed"
+
+    # Only a finished phase is honoured; anything else is ignored.
+    assert _phaseFor({}, {}, _suspendedSandbox("Running")) == "Pending"
+    assert _phaseFor({}, {}, _suspendedSandbox("Revoked")) == "Pending"
 }

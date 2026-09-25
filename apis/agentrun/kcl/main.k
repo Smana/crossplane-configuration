@@ -165,7 +165,17 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
     _taskLabel = _get(_oxr.metadata?.labels or {}, "agents.ogenki.io/task")
     _sandbox = _observed(_ocds, _name + "-sandbox")
     _previous = _oxr.status or {}
-    _prevPhase = _previous?.phase or ""
+
+    # M2: a finished run's Sandbox records the phase it was suspended for.
+    # Crossplane applies composed resources BEFORE the XR status, and suspending
+    # deletes the pod and with it the Finished condition. If that status write
+    # is lost, this annotation is the only memory that the run finished; without
+    # it the phase falls back to Pending, un-suspends the Sandbox and re-runs
+    # the task.
+    _statusPhase = _previous?.phase or ""
+    _finishedFor = _get(_sandbox?.metadata?.annotations, "agents.ogenki.io/finished-phase")
+    _recovered = _statusPhase not in _TERMINAL_PHASES and _finishedFor in ["Succeeded", "Failed"]
+    _prevPhase = _finishedFor if _recovered else _statusPhase
     _phase = _phaseOf(_ann, _prevPhase, _sandbox)
     _revoked = _get(_ann, "agents.ogenki.io/revoked")
     _validRevoke = _revoked in _REVOKE_REASONS
@@ -177,9 +187,15 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
 
     # F2b: once the phase is ANY terminal value, withhold the ServiceAccount so
     # a pod agent-sandbox recreates from a finished Sandbox cannot start (no SA,
-    # no fresh token) and run again. The Sandbox itself may still render through
-    # Succeeded/Failed for inspection — see `_live` above.
+    # no fresh token) and run again. The Sandbox object still renders through
+    # Succeeded/Failed, suspended — see `_live` above and `_suspended` below.
     _saLive = _phase not in _TERMINAL_PHASES
+
+    # M2: once Succeeded/Failed the Sandbox is Suspended: agent-sandbox v1.0.3
+    # deletes the finished pod and skips its create path, so a pod lost to
+    # Karpenter and pod GC is never recreated. F2b's withheld SA is the second
+    # lock.
+    _suspended = _phase in ["Succeeded", "Failed"]
     _finished = _condition(_sandbox, "Finished")
     _usage = _usageTokens(_ann, _previous?.usage?.tokens)
     _pr = _pullRequest(_ann, _repo, _previous?.pullRequest)
@@ -188,14 +204,16 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
     # otherwise-present dict doesn't reliably compare `!= None` in KCL 0.11.3
     # (function-kcl's own dict-mutation gotcha's sibling) — `_get`'s explicit
     # `in`-check is the pattern already proven safe for `_revoked` above.
-    _reason = _reasonOf(_phase, _prevPhase, _get(_previous, "reason"), _revoked)
+    # A recovered Failed run had reason PodFailed; a Succeeded one had none.
+    _prevReason = ("PodFailed" if _finishedFor == "Failed" else None) if _recovered else _get(_previous, "reason")
+    _reason = _reasonOf(_phase, _prevPhase, _prevReason, _revoked)
     _labels = {
         "agents.ogenki.io/run-id" = _runId
         "agents.ogenki.io/role" = _role
         if _taskLabel:
             "agents.ogenki.io/task" = _taskLabel
     }
-    _meta = lambda suffix: str, name: str, ready: bool -> any {
+    _meta = lambda suffix: str, name: str, ready: bool, extra: {str:str} -> any {
         {
             name = name
             namespace = _ns
@@ -203,22 +221,27 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
             annotations = {
                 "krm.kcl.dev/composition-resource-name" = _name + "-" + suffix
                 "agents.ogenki.io/principal" = _spec.principal
+                **extra
                 if ready:
                     "krm.kcl.dev/ready" = "True"
             }
         }
     }
-    _sandboxReady = _condition(_sandbox, "Ready")?.status == "True" or _finished?.status == "True"
+
+    # A terminal Sandbox is ready by definition: once Suspended it reports
+    # Ready=False (SandboxSuspended) and loses Finished with its pod, and the
+    # XR must not flap.
+    _sandboxReady = _phase in _TERMINAL_PHASES or _condition(_sandbox, "Ready")?.status == "True"
     _serviceAccount = [{
         apiVersion = "v1"
         kind = "ServiceAccount"
-        metadata = _meta("sa", _name, _observed(_ocds, _name + "-sa") != None)
+        metadata = _meta("sa", _name, _observed(_ocds, _name + "-sa") != None, {})
         automountServiceAccountToken = False
     }] if _saLive else []
     _taskConfigMap = [{
         apiVersion = "v1"
         kind = "ConfigMap"
-        metadata = _meta("task", _name + "-task", True)
+        metadata = _meta("task", _name + "-task", True, {})
         data = {
             "task.md" = _spec.task.text if _spec.task?.text else "Work on {}.\n".format(_spec.task.url)
             "rules.md" = _rulesFor(_role, _runId, _repo, _branch, _baseRef)
@@ -229,7 +252,7 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
     _networkPolicy = [{
         apiVersion = "cilium.io/v2"
         kind = "CiliumNetworkPolicy"
-        metadata = _meta("cnp", _name, True)
+        metadata = _meta("cnp", _name, True, {})
         spec = {
             endpointSelector.matchLabels = {"agents.ogenki.io/run-id" = _runId}
             # kubelet's probes of the proxy's health listener, nothing else:
@@ -283,10 +306,11 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
     _sandboxResource = [{
         apiVersion = "agents.x-k8s.io/v1beta1"
         kind = "Sandbox"
-        metadata = _meta("sandbox", _name, _sandboxReady)
+        metadata = _meta("sandbox", _name, _sandboxReady, {"agents.ogenki.io/finished-phase" = _phase} if _suspended else {})
         spec = {
             # Nothing ever dials into a sandbox (C4).
             service = False
+            operatingMode = "Suspended" if _suspended else "Running"
             podTemplate = {
                 metadata = {
                     labels = _podLabels
