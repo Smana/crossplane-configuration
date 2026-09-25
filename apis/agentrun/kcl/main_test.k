@@ -67,6 +67,15 @@ test_task_label_propagates_from_the_claim = lambda {
     _res = _render(_xr({}, {}, {"agents.ogenki.io/task" = "t-9f2k"}, {}), {}, _DXR)
     assert _kind(_res, "Sandbox")[0].spec.podTemplate.metadata.labels["agents.ogenki.io/task"] == "t-9f2k"
     assert "agents.ogenki.io/task" not in _kind(_run({}), "Sandbox")[0].metadata.labels
+    # C3: every object the run creates carries the task label when the claim has one.
+    _withTask = [r for r in _res if r.kind != "AgentRun"]
+    assert all r in _withTask {
+        r.metadata.labels["agents.ogenki.io/task"] == "t-9f2k"
+    }
+    _withoutTask = [r for r in _run({}) if r.kind != "AgentRun"]
+    assert not any r in _withoutTask {
+        "agents.ogenki.io/task" in r.metadata.labels
+    }
 }
 
 test_service_account_has_no_token = lambda {
