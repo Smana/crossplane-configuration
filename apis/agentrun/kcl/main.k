@@ -2,10 +2,11 @@
 # programme, cloud-native-ref docs/superpowers/specs/2026-09-23-agent-runtime-identity-design.md).
 #
 # Renders, all named xplane-run-<runId>[-suffix] in the claim's namespace:
-#   ServiceAccount       no RBAC anywhere, automount off      (not when revoked)
+#   ServiceAccount       no RBAC anywhere, automount off      (not once terminal)
 #   ConfigMap -task      task, platform rules, run metadata
 #   CiliumNetworkPolicy  default-deny, class-scoped gateway port, FQDN profiles
-#   Sandbox              agents.x-k8s.io/v1beta1 under gVisor (not when revoked)
+#   Sandbox              agents.x-k8s.io/v1beta1 under gVisor (not when revoked;
+#                        Suspended once Succeeded/Failed)
 # and patches the XR status.
 #
 # Status has ONE writer, this composition (C3). Controllers write annotations;
