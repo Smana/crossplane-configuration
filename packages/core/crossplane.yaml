@@ -8,8 +8,8 @@ metadata:
     meta.crossplane.io/license: Apache-2.0
     meta.crossplane.io/description: |
       Cloud-neutral platform API contracts for the ogenki platform: App,
-      SQLInstance, KVStore and InferenceService, plus the KVStore Composition.
-      Cloud-specific Compositions ship in a sibling package.
+      SQLInstance, KVStore, InferenceService and AgentRun, plus the KVStore and
+      AgentRun Compositions. Cloud-specific Compositions ship in a sibling package.
 spec:
   crossplane:
     version: ">=v2.0.0-0"

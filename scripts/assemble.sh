@@ -10,13 +10,15 @@ mkdir -p build/core/apis build/core/examples \
          build/aws/apis build/aws/examples \
          build/gcp/apis build/gcp/examples
 
-# --- core: the cloud-neutral contracts, plus the one neutral Composition ------
-for api in app sqlinstance kvstore inferenceservice; do
+# --- core: the cloud-neutral contracts, plus the neutral Compositions --------
+for api in app sqlinstance kvstore inferenceservice agentrun; do
   cp "apis/$api/definition.yaml" "build/core/apis/$api-definition.yaml"
 done
 cp apis/kvstore/composition.yaml build/core/apis/kvstore-composition.yaml
+cp apis/agentrun/composition.yaml build/core/apis/agentrun-composition.yaml
 cp packages/core/crossplane.yaml build/core/crossplane.yaml
-cp examples/kvstore-basic.yaml examples/kvstore-complete.yaml build/core/examples/
+cp examples/kvstore-basic.yaml examples/kvstore-complete.yaml \
+   examples/agentrun-basic.yaml examples/agentrun-complete.yaml build/core/examples/
 
 # --- aws: the AWS contract, plus every AWS Composition ------------------------
 #
