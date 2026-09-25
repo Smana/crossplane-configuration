@@ -60,6 +60,12 @@ spec:
                   type: string
                   default: main
                   maxLength: 255
+                  # A safe git-ref shape (F8): starts and ends alphanumeric, no
+                  # "..", never begins with "-" -- flows unvalidated into
+                  # rules.md, BASE_REF and run.json. `main`, `agent/<id>` and a
+                  # 40-char SHA all match; a "." can never repeat because each
+                  # one must be immediately followed by an allowed character.
+                  pattern: '^[A-Za-z0-9](?:[A-Za-z0-9_/-]|\.[A-Za-z0-9_/-])*$'
                 branch:
                   description: |
                     The one branch an implementer pushes. Derived by the factory, never
@@ -150,6 +156,10 @@ spec:
                   description: Kueue LocalQueue, set as the queue label on the sandbox pod (SP3).
                   type: string
                   maxLength: 63
+                  # F8: the composition writes this verbatim into a Kubernetes
+                  # label value (kueue.x-k8s.io/queue-name), so it must be a
+                  # valid one.
+                  pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
             status:
               type: object
               properties:

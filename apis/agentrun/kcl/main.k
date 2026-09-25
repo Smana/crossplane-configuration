@@ -30,6 +30,12 @@ _HARNESS_PROFILES = {
         args = ["--host", "0.0.0.0", "--port", "8000"]
     }
 }
+
+# The openhands profile above carries no preStop key: the pinned upstream
+# agent-server image doesn't ship /usr/local/bin/git-credential-agent.
+# CC-2's agent-harness profile (phase 6) bakes the binary in and sets this
+# key; setting it here against upstream would log FailedPreStopHook on
+# every pod termination.
 _IDENTITY_PROXY_IMAGE = "docker.io/envoyproxy/envoy:distroless-v1.39.1@sha256:eb2c01c13125d1629637cb4e4cce7207009fb7cc2c8027f9742758549d15b6f4"
 
 # spec.size: CPU request -> limit, 2 GiB per CPU, scratch for /workspace.
@@ -59,6 +65,7 @@ _PROXY_PORT = {public = 4000, internal = 4002}
 
 _BUDGET_REASONS = ["budget-run", "budget-principal", "budget-fleet"]
 _REVOKE_REASONS = _BUDGET_REASONS + ["manual"]
+_TERMINAL_PHASES = ["Succeeded", "Failed", "BudgetExhausted", "Revoked"]
 
 _CONTAINER_SECURITY = {
     allowPrivilegeEscalation = False
@@ -81,13 +88,23 @@ _observed = lambda state: any, key: str -> any {
     state[key]?.Resource if state and key in state else None
 }
 
-# Phase, top-down (design §2). Revocation and terminal phases latch on the
-# previous status, so removing an annotation never resurrects a run.
+# Phase, top-down (design §2). A terminal phase (Succeeded/Failed/BudgetExhausted/
+# Revoked) always latches: once `previous` is one of these, it is returned
+# unchanged no matter what the annotations or the observed Sandbox say this
+# reconcile (F2) — so removing an annotation never resurrects a run, and a
+# revoke arriving after completion never regresses a finished one either.
 _phaseOf = lambda annotations: any, previous: str, sandbox: any -> str {
     _revoked = _get(annotations, "agents.ogenki.io/revoked") or ""
     _finished = _condition(sandbox, "Finished")
     _ready = _condition(sandbox, "Ready")
-    "BudgetExhausted" if _revoked in _BUDGET_REASONS or previous == "BudgetExhausted" else "Revoked" if _revoked == "manual" or previous == "Revoked" else previous if previous in ["Succeeded", "Failed"] else "Succeeded" if _finished?.status == "True" and _finished?.reason == "PodSucceeded" else "Failed" if _finished?.status == "True" and _finished?.reason == "PodFailed" else "Running" if _ready?.status == "True" else "Pending"
+    previous if previous in _TERMINAL_PHASES else "BudgetExhausted" if _revoked in _BUDGET_REASONS else "Revoked" if _revoked == "manual" else "Succeeded" if _finished?.status == "True" and _finished?.reason == "PodSucceeded" else "Failed" if _finished?.status == "True" and _finished?.reason == "PodFailed" else "Running" if _ready?.status == "True" else "Pending"
+}
+
+# The reason latches with the phase (F2): once `previousPhase` is terminal,
+# `previousReason` is returned unchanged so a later revoke annotation can't
+# overwrite why a run actually stopped.
+_reasonOf = lambda phase: str, previousPhase: str, previousReason: any, revoked: any -> any {
+    previousReason if previousPhase in _TERMINAL_PHASES else "PodFailed" if phase == "Failed" else revoked if revoked in _REVOKE_REASONS else None
 }
 
 # A malformed annotation is never projected; the last valid value stays.
@@ -101,10 +118,13 @@ _pullRequest = lambda annotations: any, repository: str, previous: any -> any {
     _v if _v and regex.match(_v, "^https://github\\.com/" + repository.replace(".", "\\.") + "/pull/[0-9]+$") else previous
 }
 
+# A read-only role never commits, so it gets no trailer rule (F6) — the two
+# branches are numbered independently and each is a complete, gap-free list.
 _rulesFor = lambda role: str, runId: str, repository: str, branch: str, baseRef: str -> str {
-    _write = "2. Push only to {}. Never push to any other branch, and never merge.\n3. Open at most one pull request, from {} into {}. If it already exists, update it.\n".format(branch, branch, baseRef)
-    _read = "2. Your repository access is read-only. Do not push. Your final message is your report.\n"
-    "Platform rules for run {} ({}) on {}. The platform enforces each of them independently of you.\n1. Work in /workspace/repo, cloned from {} at {}.\n".format(runId, role, repository, repository, baseRef) + (_write if role == "implementer" else _read) + "4. Every commit carries the trailer \"Agent-Run: {}\". The commit hook adds it.\n5. Never modify .github/workflows/ or .github/chainguard/.\n6. A 429 from the model gateway means the budget is spent: stop and exit.\n".format(runId)
+    _intro = "Platform rules for run {} ({}) on {}. The platform enforces each of them independently of you.\n1. Work in /workspace/repo, cloned from {} at {}.\n".format(runId, role, repository, repository, baseRef)
+    _write = "2. Push only to {}. Never push to any other branch, and never merge.\n3. Open at most one pull request, from {} into {}. If it already exists, update it.\n4. Every commit carries the trailer \"Agent-Run: {}\". The commit hook adds it.\n5. Never modify .github/workflows/ or .github/chainguard/.\n6. A 429 from the model gateway means the budget is spent: stop and exit.\n".format(branch, branch, baseRef, runId)
+    _read = "2. Your repository access is read-only. Do not push. Your final message is your report.\n3. Never modify .github/workflows/ or .github/chainguard/.\n4. A 429 from the model gateway means the budget is spent: stop and exit.\n"
+    _intro + (_write if role == "implementer" else _read)
 }
 
 _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
@@ -130,12 +150,30 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
     _taskLabel = _get(_oxr.metadata?.labels or {}, "agents.ogenki.io/task")
     _sandbox = _observed(_ocds, _name + "-sandbox")
     _previous = _oxr.status or {}
-    _phase = _phaseOf(_ann, _previous?.phase or "", _sandbox)
-    _live = _phase not in ["Revoked", "BudgetExhausted"]
+    _prevPhase = _previous?.phase or ""
+    _phase = _phaseOf(_ann, _prevPhase, _sandbox)
     _revoked = _get(_ann, "agents.ogenki.io/revoked")
+    _validRevoke = _revoked in _REVOKE_REASONS
+
+    # A fresh, valid revocation always wins, whatever the latched phase says
+    # (F2): it stops the Sandbox even on an otherwise-inspectable Succeeded/
+    # Failed run. Nothing ever dials into a sandbox anyway (C4).
+    _live = _phase not in ["Revoked", "BudgetExhausted"] and not _validRevoke
+
+    # F2b: once the phase is ANY terminal value, withhold the ServiceAccount so
+    # a pod agent-sandbox recreates from a finished Sandbox cannot start (no SA,
+    # no fresh token) and run again. The Sandbox itself may still render through
+    # Succeeded/Failed for inspection — see `_live` above.
+    _saLive = _phase not in _TERMINAL_PHASES
     _finished = _condition(_sandbox, "Finished")
     _usage = _usageTokens(_ann, _previous?.usage?.tokens)
     _pr = _pullRequest(_ann, _repo, _previous?.pullRequest)
+
+    # `_get`, not `_previous?.reason`: a single-level `?.` miss on an
+    # otherwise-present dict doesn't reliably compare `!= None` in KCL 0.11.3
+    # (function-kcl's own dict-mutation gotcha's sibling) — `_get`'s explicit
+    # `in`-check is the pattern already proven safe for `_revoked` above.
+    _reason = _reasonOf(_phase, _prevPhase, _get(_previous, "reason"), _revoked)
     _labels = {
         "agents.ogenki.io/run-id" = _runId
         "agents.ogenki.io/role" = _role
@@ -161,7 +199,7 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
         kind = "ServiceAccount"
         metadata = _meta("sa", _name, _observed(_ocds, _name + "-sa") != None)
         automountServiceAccountToken = False
-    }] if _live else []
+    }] if _saLive else []
     _taskConfigMap = [{
         apiVersion = "v1"
         kind = "ConfigMap"
@@ -196,8 +234,13 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
                     }]
                 }
                 {
+                    # Both the label AND its owning namespace are pinned (F1):
+                    # an App claim can create its own Gateway named "agent-router"
+                    # in its own namespace, and without the namespace pin that
+                    # tenant Gateway's data-plane pods would match too — an
+                    # exfiltration relay for every run's tokens.
                     toEndpoints = [{
-                        matchLabels = {"io.kubernetes.pod.namespace" = "envoy-gateway-system", "gateway.envoyproxy.io/owning-gateway-name" = "agent-router"}
+                        matchLabels = {"io.kubernetes.pod.namespace" = "envoy-gateway-system", "gateway.envoyproxy.io/owning-gateway-name" = "agent-router", "gateway.envoyproxy.io/owning-gateway-namespace" = "agent-system"}
                     }]
                     toPorts = [{ports = [{port = str(_ROUTER_PORT[_class]), protocol = "TCP"}]}]
                 }
@@ -292,7 +335,8 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
                         startupProbe = {httpGet = {path = "/ready", port = _profile.port}, periodSeconds = 5, failureThreshold = 60}
                         readinessProbe = {httpGet = {path = "/ready", port = _profile.port}, periodSeconds = 10}
                         livenessProbe = {httpGet = {path = "/health", port = _profile.port}, periodSeconds = 20, failureThreshold = 3}
-                        lifecycle.preStop.exec.command = ["/usr/local/bin/git-credential-agent", "revoke"]
+                        if _profile?.preStop:
+                            lifecycle.preStop.exec.command = _profile.preStop
                         resources = {
                             requests = {cpu = _size.cpu[0], memory = _size.memory[0], "ephemeral-storage" = "1Gi"}
                             limits = {cpu = _size.cpu[1], memory = _size.memory[1], "ephemeral-storage" = _size.scratch}
@@ -333,14 +377,18 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
             runId = _runId
             branch = _branch
             conversationId = _oxr.metadata?.uid or ""
+            # Fall back to the previous value once the Sandbox is gone (F3) —
+            # same "last valid value stays" contract as usage/pullRequest below.
             if _sandbox?.metadata?.creationTimestamp:
                 startedAt = _sandbox.metadata.creationTimestamp
+            elif _previous?.startedAt:
+                startedAt = _previous.startedAt
             if _finished?.lastTransitionTime:
                 finishedAt = _finished.lastTransitionTime
-            if _phase == "Failed":
-                reason = "PodFailed"
-            if not _live:
-                reason = _revoked if _revoked in _REVOKE_REASONS else _previous?.reason
+            elif _previous?.finishedAt:
+                finishedAt = _previous.finishedAt
+            if _reason:
+                reason = _reason
             if _usage != None:
                 usage = {tokens = _usage}
             if _pr:

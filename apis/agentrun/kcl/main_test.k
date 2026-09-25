@@ -159,6 +159,11 @@ test_cnp_is_default_deny_with_named_egress = lambda {
     assert not any e in _egressRules {
         "toEntities" in e
     }, "no world, no kube-apiserver"
+
+    # F1: the namespace is pinned too, so a tenant Gateway named "agent-router"
+    # in some other namespace can never match this selector.
+    _router = [e for e in _egressRules if e.toEndpoints and e.toEndpoints[0].matchLabels["gateway.envoyproxy.io/owning-gateway-name"] == "agent-router"][0]
+    assert _router.toEndpoints[0].matchLabels["gateway.envoyproxy.io/owning-gateway-namespace"] == "agent-system"
 }
 
 test_room_ref_adds_broker_egress = lambda {
@@ -194,6 +199,13 @@ test_rules_depend_on_role = lambda {
     _rev = _kind(_run({role = "reviewer", task = {url = "https://github.com/Smana/cloud-native-ref/pull/1"}}), "ConfigMap")[0].data["rules.md"]
     assert "Push only to agent/7f3cq2xz" in _impl
     assert "read-only" in _rev and "Push only" not in _rev
+
+    # F6: the read-only branch is gap-free (1-4) and drops the commit-trailer
+    # rule entirely -- a read-only role never commits.
+    assert "3. Never modify .github/workflows/" in _rev
+    assert "4. A 429 from the model gateway" in _rev
+    assert "Every commit carries the trailer" not in _rev
+    assert "6. A 429 from the model gateway" in _impl, "the write branch keeps all 6 rules"
 }
 
 # ---- Phase table, rows 1-6 (design §2) ----
@@ -231,6 +243,46 @@ test_revocation_latches = lambda {
     assert _phaseFor({}, {phase = "Revoked"}, {}) == "Revoked", "removing the annotation never resurrects a run"
     assert _phaseFor({}, {phase = "BudgetExhausted"}, {}) == "BudgetExhausted"
     assert _phaseFor({}, {phase = "Succeeded"}, {}) == "Succeeded", "a vanished Sandbox does not regress status"
+}
+
+# ---- F2: phase and reason latch after a terminal state, whatever annotation
+# arrives later. A VALID revocation still stops the ServiceAccount and the
+# Sandbox regardless of the latched phase (that's a rendering rule, not a
+# phase change). ----
+test_revocation_after_success_does_not_override_the_phase = lambda {
+    _res = _render(_xr({}, {"agents.ogenki.io/revoked" = "budget-run"}, {}, {phase = "Succeeded"}), {}, _DXR)
+    assert _status(_res).phase == "Succeeded"
+    assert "reason" not in _status(_res), "the previous (absent) reason is unchanged"
+    assert [r.kind for r in _res] == ["ConfigMap", "CiliumNetworkPolicy", "AgentRun"], "a valid revocation still withholds the SA and the Sandbox"
+}
+
+test_revoked_manual_latches_over_a_later_budget_revocation = lambda {
+    _res = _render(_xr({}, {"agents.ogenki.io/revoked" = "budget-run"}, {}, {phase = "Revoked", reason = "manual"}), {}, _DXR)
+    assert _status(_res).phase == "Revoked"
+    assert _status(_res).reason == "manual"
+}
+
+test_budget_exhausted_latches_over_a_later_manual_revocation = lambda {
+    _res = _render(_xr({}, {"agents.ogenki.io/revoked" = "manual"}, {}, {phase = "BudgetExhausted", reason = "budget-run"}), {}, _DXR)
+    assert _status(_res).phase == "BudgetExhausted"
+    assert _status(_res).reason == "budget-run"
+}
+
+# ---- F2b: a terminal run never gets a fresh ServiceAccount, so a pod
+# agent-sandbox recreates from a finished Sandbox cannot start and run again.
+# Succeeded/Failed keep the Sandbox itself for inspection. ----
+test_succeeded_run_has_no_service_account_but_keeps_its_sandbox = lambda {
+    _res = _render(_xr({}, {}, {}, {phase = "Succeeded"}), {}, _DXR)
+    assert [r.kind for r in _res] == ["ConfigMap", "CiliumNetworkPolicy", "Sandbox", "AgentRun"]
+}
+
+# ---- F3: startedAt/finishedAt survive a vanished Sandbox, same "last valid
+# value stays" contract as usage/pullRequest. ----
+test_started_and_finished_at_survive_a_vanished_sandbox = lambda {
+    _prev = {phase = "Succeeded", startedAt = "2026-09-25T10:00:00Z", finishedAt = "2026-09-25T10:20:00Z"}
+    _res = _render(_xr({}, {}, {}, _prev), {}, _DXR)
+    assert _status(_res).startedAt == "2026-09-25T10:00:00Z"
+    assert _status(_res).finishedAt == "2026-09-25T10:20:00Z"
 }
 
 # ---- SC-13 offline: revocation drops the identity and the sandbox ----
