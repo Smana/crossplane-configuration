@@ -146,7 +146,8 @@ test_cnp_is_default_deny_with_named_egress = lambda {
     _spec = _kind(_run({
         egress = {profiles = ["pypi"]}
     }), "CiliumNetworkPolicy")[0].spec
-    assert _spec.ingress == [{fromEntities = ["host"], toPorts = [{ports = [{port = "8000", protocol = "TCP"}, {port = "9901", protocol = "TCP"}]}]}]
+    # Only the proxy's health listener: not agent-server (M6), not Envoy admin (I2).
+    assert _spec.ingress == [{fromEntities = ["host"], toPorts = [{ports = [{port = "9902", protocol = "TCP"}]}]}]
     _fqdn = [e for e in _spec.egress if e.toFQDNs][0]
     assert [f.matchName for f in _fqdn.toFQDNs] == ["github.com", "api.github.com", "codeload.github.com", "objects.githubusercontent.com", "raw.githubusercontent.com", "pypi.org", "files.pythonhosted.org"]
     _dns = [n.matchName for n in _spec.egress[0].toPorts[0].rules.dns]
@@ -319,6 +320,27 @@ test_readiness_follows_the_sandbox = lambda {
     assert _kind(_done, "Sandbox")[0].metadata.annotations["krm.kcl.dev/ready"] == "True"
 }
 
-test_harness_binds_for_probes = lambda {
-    assert _pod(_run({})).containers[0].args == ["--host", "0.0.0.0", "--port", "8000"]
+# ---- M6: agent-server stays on loopback, probed from inside the container ----
+test_harness_stays_on_loopback = lambda {
+    _h = _pod(_run({})).containers[0]
+    assert _h.args == ["--port", "8000"], "no --host: agent-server keeps 127.0.0.1"
+    assert "ports" not in _h
+    _probes = [_h.startupProbe, _h.readinessProbe, _h.livenessProbe]
+    assert not any p in _probes {
+        "httpGet" in p
+    }, "kubelet cannot reach a loopback listener"
+    assert _h.startupProbe.exec.command == ["python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=2)"]
+    assert _h.readinessProbe.exec.command[2].endswith("127.0.0.1:8000/ready', timeout=2)")
+    assert _h.livenessProbe.exec.command[2].endswith("127.0.0.1:8000/health', timeout=2)")
+    assert _h.startupProbe.periodSeconds == 5 and _h.startupProbe.failureThreshold == 60
+    assert _h.readinessProbe.periodSeconds == 10
+    assert _h.livenessProbe.periodSeconds == 20 and _h.livenessProbe.failureThreshold == 3
+}
+
+# ---- I2: Envoy admin is off the pod network; probes use the health listener ----
+test_proxy_probes_use_the_health_listener = lambda {
+    _proxy = _pod(_run({})).initContainers[0]
+    assert _proxy.ports == [{name = "health", containerPort = 9902, protocol = "TCP"}]
+    assert _proxy.readinessProbe.httpGet == {path = "/ready", port = 9902}
+    assert _proxy.livenessProbe.httpGet == {path = "/ready", port = 9902}
 }

@@ -46,9 +46,10 @@ spec:
               openhands = {
                   image = "ghcr.io/openhands/agent-server:1.49.5-python@sha256:1e7b08ffef732d6520e0b0048931b6ef425a7742c5fb80a82c9397a285c669eb"
                   port = 8000
-                  # agent-server binds 127.0.0.1 unless told otherwise, and kubelet probes
-                  # the pod IP. The CNP admits only `host` on this port.
-                  args = ["--host", "0.0.0.0", "--port", "8000"]
+                  # No --host: agent-server keeps its default 127.0.0.1. Its API is
+                  # unauthenticated, so it stays off the pod network — the node included
+                  # — and the probes run inside the container instead (_localGet).
+                  args = ["--port", "8000"]
               }
           }
 
@@ -83,6 +84,20 @@ spec:
           # One agent-router listener per data class (S6): the port IS the class.
           _ROUTER_PORT = {public = 8080, internal = 8081}
           _PROXY_PORT = {public = 4000, internal = 4002}
+
+          # The identity-proxy's dedicated health listener (Envoy's health_check filter,
+          # serving /ready). Its admin port 9901 is NOT on the pod network: the harness
+          # shares the network namespace and could POST /logging?level=debug to make
+          # Envoy log the Authorization headers it injects (S5). Phase 2's bootstrap
+          # binds admin to a unix socket in proxy-tmp, which the harness does not mount.
+          _PROXY_HEALTH_PORT = 9902
+
+          # An exec probe for a server listening on 127.0.0.1, which kubelet — probing
+          # the pod IP — cannot reach. urlopen raises on a refused connection or an HTTP
+          # error, so python3 exits non-zero.
+          _localGet = lambda port: int, path: str -> [str] {
+              ["python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:{}{}', timeout=2)".format(port, path)]
+          }
 
           _BUDGET_REASONS = ["budget-run", "budget-principal", "budget-fleet"]
           _REVOKE_REASONS = _BUDGET_REASONS + ["manual"]
@@ -238,10 +253,12 @@ spec:
                   metadata = _meta("cnp", _name, True)
                   spec = {
                       endpointSelector.matchLabels = {"agents.ogenki.io/run-id" = _runId}
-                      # Probes only. Nothing ever dials into a sandbox (C4).
+                      # kubelet's probes of the proxy's health listener, nothing else:
+                      # the harness is probed by exec, and nothing ever dials into a
+                      # sandbox (C4).
                       ingress = [{
                           fromEntities = ["host"]
-                          toPorts = [{ports = [{port = str(_profile.port), protocol = "TCP"}, {port = "9901", protocol = "TCP"}]}]
+                          toPorts = [{ports = [{port = str(_PROXY_HEALTH_PORT), protocol = "TCP"}]}]
                       }]
                       egress = [
                           {
@@ -320,9 +337,9 @@ spec:
                                   image = _IDENTITY_PROXY_IMAGE
                                   restartPolicy = "Always"
                                   args = ["-c", "/etc/envoy/envoy.yaml", "--log-level", "warn"]
-                                  ports = [{name = "admin", containerPort = 9901, protocol = "TCP"}]
-                                  readinessProbe = {httpGet = {path = "/ready", port = 9901}, periodSeconds = 5}
-                                  livenessProbe = {httpGet = {path = "/ready", port = 9901}, periodSeconds = 10, failureThreshold = 3}
+                                  ports = [{name = "health", containerPort = _PROXY_HEALTH_PORT, protocol = "TCP"}]
+                                  readinessProbe = {httpGet = {path = "/ready", port = _PROXY_HEALTH_PORT}, periodSeconds = 5}
+                                  livenessProbe = {httpGet = {path = "/ready", port = _PROXY_HEALTH_PORT}, periodSeconds = 10, failureThreshold = 3}
                                   resources = {requests = {cpu = "50m", memory = "64Mi"}, limits = {cpu = "200m", memory = "128Mi"}}
                                   securityContext = _CONTAINER_SECURITY
                                   volumeMounts = [
@@ -352,10 +369,13 @@ spec:
                                       {name = "RULES_FILE", value = "/run/agent/task/rules.md"}
                                       {name = "HOME", value = "/home/openhands"}
                                   ]
-                                  ports = [{name = "http", containerPort = _profile.port, protocol = "TCP"}]
-                                  startupProbe = {httpGet = {path = "/ready", port = _profile.port}, periodSeconds = 5, failureThreshold = 60}
-                                  readinessProbe = {httpGet = {path = "/ready", port = _profile.port}, periodSeconds = 10}
-                                  livenessProbe = {httpGet = {path = "/health", port = _profile.port}, periodSeconds = 20, failureThreshold = 3}
+                                  # No containerPort: agent-server listens on loopback only.
+                                  # timeoutSeconds covers python3's start-up under gVisor
+                                  # plus urlopen's own 2 s; kubelet's 1 s default would
+                                  # kill a healthy probe.
+                                  startupProbe = {exec.command = _localGet(_profile.port, "/ready"), periodSeconds = 5, failureThreshold = 60, timeoutSeconds = 5}
+                                  readinessProbe = {exec.command = _localGet(_profile.port, "/ready"), periodSeconds = 10, timeoutSeconds = 5}
+                                  livenessProbe = {exec.command = _localGet(_profile.port, "/health"), periodSeconds = 20, failureThreshold = 3, timeoutSeconds = 5}
                                   if _profile?.preStop:
                                       lifecycle.preStop.exec.command = _profile.preStop
                                   resources = {
