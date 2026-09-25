@@ -38,10 +38,26 @@ spec:
               type: object
               required: [role, repository, principal, dataClass, task]
               x-kubernetes-validations:
+                # Four backslashes: YAML unescapes them to two, CEL's string literal to
+                # one, so the regex sees `\.` -- a literal dot.
                 - rule: "self.role != 'reviewer' || (has(self.task.url) && self.task.url.matches('^https://github\\\\.com/[^/]+/[^/]+/pull/[0-9]+$'))"
                   message: "a reviewer run needs a pull request URL as its task"
                 - rule: "!has(self.task.url) || self.task.url.startsWith('https://github.com/' + self.repository + '/')"
                   message: "task.url must point into spec.repository"
+                # The run profile is fixed at creation (C5, SP2 S9). agent-sandbox never
+                # patches a live pod and Crossplane re-renders the CNP, so an edit would
+                # widen egress mid-run or reach only a recreated pod. A field-level
+                # `self == oldSelf` is skipped when the old value is absent, which would
+                # let an optional field be ADDED later -- so the optional fields are
+                # pinned here, presence and value. Defaulted fields are always present
+                # and carry their own field-level rule. budget.maxTokens stays mutable:
+                # it is the owner's cap.
+                - rule: "has(self.branch) == has(oldSelf.branch) && (!has(self.branch) || self.branch == oldSelf.branch)"
+                  message: "branch is immutable and cannot be added or removed after creation"
+                - rule: "has(self.roomRef) == has(oldSelf.roomRef) && (!has(self.roomRef) || self.roomRef == oldSelf.roomRef)"
+                  message: "roomRef is immutable and cannot be added or removed after creation"
+                - rule: "has(self.queueName) == has(oldSelf.queueName) && (!has(self.queueName) || self.queueName == oldSelf.queueName)"
+                  message: "queueName is immutable and cannot be added or removed after creation"
               properties:
                 role:
                   description: The run's one role (C2). A policy input, not an identity.
@@ -52,6 +68,8 @@ spec:
                 repository:
                   description: The single GitHub repository this run may touch, as owner/name.
                   type: string
+                  # GitHub caps an owner at 39 characters and a repository at 100.
+                  maxLength: 140
                   pattern: '^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$'
                   x-kubernetes-validations:
                     - {rule: "self == oldSelf", message: "repository is immutable"}
@@ -60,12 +78,15 @@ spec:
                   type: string
                   default: main
                   maxLength: 255
-                  # A safe git-ref shape (F8): starts and ends alphanumeric, no
-                  # "..", never begins with "-" -- flows unvalidated into
+                  # A safe git-ref shape (F8), not the full git-check-ref-format
+                  # grammar: alphanumeric runs joined by `_`, `/` or `-`, with at
+                  # most one "." between two runs -- so it starts and ends
+                  # alphanumeric and never holds "..". It flows unvalidated into
                   # rules.md, BASE_REF and run.json. `main`, `agent/<id>` and a
-                  # 40-char SHA all match; a "." can never repeat because each
-                  # one must be immediately followed by an allowed character.
-                  pattern: '^[A-Za-z0-9](?:[A-Za-z0-9_/-]|\.[A-Za-z0-9_/-])*$'
+                  # 40-char SHA all match.
+                  pattern: '^[A-Za-z0-9]+(?:[_/-]*\.?[_/-]*[A-Za-z0-9]+)*$'
+                  x-kubernetes-validations:
+                    - {rule: "self == oldSelf", message: "baseRef is immutable"}
                 branch:
                   description: |
                     The one branch an implementer pushes. Derived by the factory, never
@@ -73,8 +94,6 @@ spec:
                     Defaults to agent/<runId> in the composition.
                   type: string
                   pattern: '^agent/[a-z0-9][a-z0-9._/-]{0,100}$'
-                  x-kubernetes-validations:
-                    - {rule: "self == oldSelf", message: "branch is immutable"}
                 task:
                   description: Exactly one of text or url.
                   type: object
@@ -89,10 +108,12 @@ spec:
                     url:
                       description: A GitHub issue or pull request.
                       type: string
+                      maxLength: 256
                       pattern: '^https://github\.com/[A-Za-z0-9-]+/[A-Za-z0-9._-]+/(issues|pull)/[0-9]+$'
                 principal:
                   description: Accountable principal, human:<zitadel sub> or system:<component> (C3).
                   type: string
+                  maxLength: 128
                   pattern: '^(human:[A-Za-z0-9@._-]+|system:[a-z0-9-]+)$'
                   x-kubernetes-validations:
                     - {rule: "self == oldSelf", message: "principal is immutable"}
@@ -101,6 +122,8 @@ spec:
                   type: string
                   enum: [agent-default, tier-light, tier-standard, tier-frontier]
                   default: agent-default
+                  x-kubernetes-validations:
+                    - {rule: "self == oldSelf", message: "model is immutable"}
                 dataClass:
                   description: |
                     public or internal. Picks the gateway audience, proxy port and listener,
@@ -125,19 +148,27 @@ spec:
                       default: 120
                       minimum: 1
                       maximum: 480
+                      x-kubernetes-validations:
+                        - {rule: "self == oldSelf", message: "budget.maxMinutes is immutable"}
                 harness:
                   description: A platform profile; the composition maps it to an image digest.
                   type: string
                   enum: [openhands]
                   default: openhands
+                  x-kubernetes-validations:
+                    - {rule: "self == oldSelf", message: "harness is immutable"}
                 size:
                   description: small/medium/large = 1->2 / 2->4 / 4->8 CPU, 2 GiB per CPU, 10/20/40 Gi scratch.
                   type: string
                   enum: [small, medium, large]
                   default: small
+                  x-kubernetes-validations:
+                    - {rule: "self == oldSelf", message: "size is immutable"}
                 egress:
                   type: object
                   default: {}
+                  x-kubernetes-validations:
+                    - {rule: "self == oldSelf", message: "egress is immutable"}
                   properties:
                     profiles:
                       description: FQDN profiles on top of github, which is always on.
