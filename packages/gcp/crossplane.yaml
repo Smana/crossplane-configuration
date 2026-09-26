@@ -25,12 +25,13 @@ spec:
     # to v0.3.0 for objectStore, then to v0.6.1 for `externalSecrets[].store`,
     # then to v0.7.0 for `sidecars[].inheritEnv`/`livenessProbe`/`readinessProbe`
     # and `observability.metrics.scrape`, which this package's App Composition
-    # reads and only core v0.6.1's/v0.7.0's XRD declares. A stale floor here
-    # fails silently: core is left at whatever already satisfied it, and every
-    # claim is rejected on dry-run for a field the cluster's XRD has never heard
-    # of.
+    # reads and only core v0.6.1's/v0.7.0's XRD declares, then to v0.8.0 with
+    # the aws floor in the same release (AgentRun) -- the two floors move
+    # together. A stale floor here fails silently: core is left at whatever
+    # already satisfied it, and every claim is rejected on dry-run for a field
+    # the cluster's XRD has never heard of.
     - configuration: ghcr.io/smana/crossplane-configuration-core
-      version: ">=v0.7.0"
+      version: ">=v0.8.0"
     # The function dependsOn entries that used to live here are removed
     # deliberately. See Smana/cloud-native-ref#1971 and the longer note in
     # packages/core/crossplane.yaml.

@@ -86,6 +86,16 @@ def main() -> int:
             print(f"ERROR  {example.name}\n{proc.stderr}", file=sys.stderr)
             failures += 1
             continue
+        # The first document is the XR itself. Any further object of the XR's kind
+        # means a status item was emitted as a composed resource (function-kcl
+        # target `Resources` instead of `Default`): the XR never gets its status,
+        # and Crossplane tries to create a nested XR. The golden would just record it.
+        nested = [d for d in list(yaml.safe_load_all(proc.stdout))[1:] if d and d.get("kind") == kind]
+        if nested:
+            print(f"ERROR  {example.name}: {len(nested)} nested {kind} emitted as composed "
+                  "resource(s); the status item must use function-kcl target Default", file=sys.stderr)
+            failures += 1
+            continue
         want = (GOLDEN / example.name).read_text()
         if proc.stdout == want:
             print(f"MATCH  {example.name:<40} {(GOLDEN / example.name).stat().st_size:>6} B")

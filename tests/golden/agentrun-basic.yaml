@@ -1,0 +1,419 @@
+---
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: AgentRun
+metadata:
+  name: xplane-run-7f3cq2xz
+  namespace: agents
+status:
+  branch: agent/7f3cq2xz
+  conditions:
+  - lastTransitionTime: "2024-01-01T00:00:00Z"
+    message: 'Unready resources: xplane-run-7f3cq2xz-sa, xplane-run-7f3cq2xz-sandbox'
+    reason: Creating
+    status: "False"
+    type: Ready
+  conversationId: ""
+  phase: Pending
+  runId: 7f3cq2xz
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  annotations:
+    agents.ogenki.io/principal: human:312345678901234567
+    crossplane.io/composition-resource-name: xplane-run-7f3cq2xz-cnp
+  labels:
+    agents.ogenki.io/role: implementer
+    agents.ogenki.io/run-id: 7f3cq2xz
+    crossplane.io/composite: xplane-run-7f3cq2xz
+  name: xplane-run-7f3cq2xz
+  namespace: agents
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: AgentRun
+    name: xplane-run-7f3cq2xz
+    uid: ""
+spec:
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        io.kubernetes.pod.namespace: kube-system
+        k8s-app: kube-dns
+    toPorts:
+    - ports:
+      - port: "53"
+        protocol: UDP
+      - port: "53"
+        protocol: TCP
+      rules:
+        dns:
+        - matchName: agent-router.envoy-gateway-system.svc.cluster.local
+        - matchName: github.com
+        - matchName: api.github.com
+        - matchName: codeload.github.com
+        - matchName: objects.githubusercontent.com
+        - matchName: raw.githubusercontent.com
+  - toEndpoints:
+    - matchLabels:
+        gateway.envoyproxy.io/owning-gateway-name: agent-router
+        gateway.envoyproxy.io/owning-gateway-namespace: agent-system
+        io.kubernetes.pod.namespace: envoy-gateway-system
+    toPorts:
+    - ports:
+      - port: "8080"
+        protocol: TCP
+      - port: "8082"
+        protocol: TCP
+  - toFQDNs:
+    - matchName: github.com
+    - matchName: api.github.com
+    - matchName: codeload.github.com
+    - matchName: objects.githubusercontent.com
+    - matchName: raw.githubusercontent.com
+    toPorts:
+    - ports:
+      - port: "443"
+        protocol: TCP
+  endpointSelector:
+    matchLabels:
+      agents.ogenki.io/run-id: 7f3cq2xz
+  ingress:
+  - fromEntities:
+    - host
+    toPorts:
+    - ports:
+      - port: "9902"
+        protocol: TCP
+---
+apiVersion: v1
+automountServiceAccountToken: false
+kind: ServiceAccount
+metadata:
+  annotations:
+    agents.ogenki.io/principal: human:312345678901234567
+    crossplane.io/composition-resource-name: xplane-run-7f3cq2xz-sa
+  labels:
+    agents.ogenki.io/role: implementer
+    agents.ogenki.io/run-id: 7f3cq2xz
+    crossplane.io/composite: xplane-run-7f3cq2xz
+  name: xplane-run-7f3cq2xz
+  namespace: agents
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: AgentRun
+    name: xplane-run-7f3cq2xz
+    uid: ""
+---
+apiVersion: agents.x-k8s.io/v1beta1
+kind: Sandbox
+metadata:
+  annotations:
+    agents.ogenki.io/principal: human:312345678901234567
+    crossplane.io/composition-resource-name: xplane-run-7f3cq2xz-sandbox
+  labels:
+    agents.ogenki.io/role: implementer
+    agents.ogenki.io/run-id: 7f3cq2xz
+    crossplane.io/composite: xplane-run-7f3cq2xz
+  name: xplane-run-7f3cq2xz
+  namespace: agents
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: AgentRun
+    name: xplane-run-7f3cq2xz
+    uid: ""
+spec:
+  operatingMode: Running
+  podTemplate:
+    metadata:
+      annotations:
+        karpenter.sh/do-not-disrupt: "true"
+      labels:
+        agents.ogenki.io/role: implementer
+        agents.ogenki.io/run-id: 7f3cq2xz
+    spec:
+      activeDeadlineSeconds: 7200
+      automountServiceAccountToken: false
+      containers:
+      - args:
+        - --port
+        - "8000"
+        env:
+        - name: RUN_ID
+          value: 7f3cq2xz
+        - name: ROLE
+          value: implementer
+        - name: REPOSITORY
+          value: Smana/cloud-native-ref
+        - name: BASE_REF
+          value: main
+        - name: BRANCH
+          value: agent/7f3cq2xz
+        - name: MODEL
+          value: agent-default
+        - name: DATA_CLASS
+          value: public
+        - name: CONVERSATION_ID
+          value: ""
+        - name: LLM_BASE_URL
+          value: http://127.0.0.1:4000/v1
+        - name: MCP_URL
+          value: http://127.0.0.1:4000/mcp
+        - name: STS_URL
+          value: http://127.0.0.1:4001/sts/exchange
+        - name: TASK_FILE
+          value: /run/agent/task/task.md
+        - name: RULES_FILE
+          value: /run/agent/task/rules.md
+        - name: HOME
+          value: /home/openhands
+        image: ghcr.io/openhands/agent-server:1.49.5-python@sha256:1e7b08ffef732d6520e0b0048931b6ef425a7742c5fb80a82c9397a285c669eb
+        livenessProbe:
+          exec:
+            command:
+            - python3
+            - -c
+            - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health',
+              timeout=2)
+          failureThreshold: 3
+          periodSeconds: 20
+          timeoutSeconds: 5
+        name: harness
+        readinessProbe:
+          exec:
+            command:
+            - python3
+            - -c
+            - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready',
+              timeout=2)
+          periodSeconds: 10
+          timeoutSeconds: 5
+        resources:
+          limits:
+            cpu: "2"
+            ephemeral-storage: 10Gi
+            memory: 4Gi
+          requests:
+            cpu: "1"
+            ephemeral-storage: 1Gi
+            memory: 2Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        startupProbe:
+          exec:
+            command:
+            - python3
+            - -c
+            - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready',
+              timeout=2)
+          failureThreshold: 60
+          periodSeconds: 5
+          timeoutSeconds: 5
+        volumeMounts:
+        - mountPath: /workspace
+          name: workspace
+        - mountPath: /home/openhands
+          name: home
+        - mountPath: /tmp
+          name: tmp
+        - mountPath: /run/agent/git
+          name: git-cache
+        - mountPath: /run/agent/task
+          name: task
+          readOnly: true
+      dnsConfig:
+        options:
+        - name: ndots
+          value: "1"
+      enableServiceLinks: false
+      initContainers:
+      - args:
+        - -c
+        - /etc/envoy/envoy.yaml
+        - --log-level
+        - warn
+        - --disable-hot-restart
+        - --concurrency
+        - "1"
+        image: docker.io/envoyproxy/envoy:distroless-v1.39.1@sha256:eb2c01c13125d1629637cb4e4cce7207009fb7cc2c8027f9742758549d15b6f4
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /ready
+            port: 9902
+          periodSeconds: 10
+        name: identity-proxy
+        ports:
+        - containerPort: 9902
+          name: health
+          protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 9902
+          periodSeconds: 5
+        resources:
+          limits:
+            cpu: 200m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        restartPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        startupProbe:
+          failureThreshold: 60
+          httpGet:
+            path: /ready
+            port: 9902
+          periodSeconds: 1
+        volumeMounts:
+        - mountPath: /etc/envoy
+          name: proxy-config
+          readOnly: true
+        - mountPath: /var/run/secrets/agents/gateway
+          name: gateway-token
+          readOnly: true
+        - mountPath: /var/run/secrets/agents/sts
+          name: sts-token
+          readOnly: true
+        - mountPath: /tmp
+          name: proxy-tmp
+      restartPolicy: Never
+      runtimeClassName: gvisor
+      securityContext:
+        fsGroup: 10001
+        runAsGroup: 10001
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: xplane-run-7f3cq2xz
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: gateway-token
+        projected:
+          defaultMode: 288
+          sources:
+          - serviceAccountToken:
+              audience: agent-router.implementer.public
+              expirationSeconds: 7200
+              path: token
+      - name: sts-token
+        projected:
+          defaultMode: 288
+          sources:
+          - serviceAccountToken:
+              audience: octo-sts/Smana/cloud-native-ref/implementer
+              expirationSeconds: 7200
+              path: token
+      - configMap:
+          name: agent-identity-proxy
+        name: proxy-config
+      - emptyDir:
+          medium: Memory
+          sizeLimit: 16Mi
+        name: proxy-tmp
+      - configMap:
+          name: xplane-run-7f3cq2xz-task
+        name: task
+      - emptyDir:
+          sizeLimit: 10Gi
+        name: workspace
+      - emptyDir:
+          sizeLimit: 2Gi
+        name: home
+      - emptyDir:
+          sizeLimit: 2Gi
+        name: tmp
+      - emptyDir:
+          medium: Memory
+          sizeLimit: 1Mi
+        name: git-cache
+  service: false
+---
+apiVersion: v1
+data:
+  rules.md: |
+    Platform rules for run 7f3cq2xz (implementer) on Smana/cloud-native-ref. The platform enforces each of them independently of you.
+    1. Work in /workspace/repo, cloned from Smana/cloud-native-ref at main.
+    2. Push only to agent/7f3cq2xz. Never push to any other branch, and never merge.
+    3. Open at most one pull request, from agent/7f3cq2xz into main. If it already exists, update it.
+    4. Every commit carries the trailer "Agent-Run: 7f3cq2xz". The commit hook adds it.
+    5. Never modify .github/workflows/ or .github/chainguard/.
+    6. A 429 from the model gateway means the budget is spent: stop and exit.
+  run.json: '{"runId": "7f3cq2xz", "role": "implementer", "repository": "Smana/cloud-native-ref",
+    "baseRef": "main", "branch": "agent/7f3cq2xz", "dataClass": "public", "model":
+    "agent-default", "principal": "human:312345678901234567"}'
+  task.md: Fix the broken relative link in docs/superpowers/README.md.
+kind: ConfigMap
+metadata:
+  annotations:
+    agents.ogenki.io/principal: human:312345678901234567
+    crossplane.io/composition-resource-name: xplane-run-7f3cq2xz-task
+  labels:
+    agents.ogenki.io/role: implementer
+    agents.ogenki.io/run-id: 7f3cq2xz
+    crossplane.io/composite: xplane-run-7f3cq2xz
+  name: xplane-run-7f3cq2xz-task
+  namespace: agents
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: AgentRun
+    name: xplane-run-7f3cq2xz
+    uid: ""
+---
+apiVersion: protection.crossplane.io/v1beta1
+kind: Usage
+metadata:
+  annotations:
+    agents.ogenki.io/principal: human:312345678901234567
+    crossplane.io/composition-resource-name: xplane-run-7f3cq2xz-usage
+  labels:
+    agents.ogenki.io/role: implementer
+    agents.ogenki.io/run-id: 7f3cq2xz
+    crossplane.io/composite: xplane-run-7f3cq2xz
+  name: xplane-run-7f3cq2xz-cnp
+  namespace: agents
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: AgentRun
+    name: xplane-run-7f3cq2xz
+    uid: ""
+spec:
+  by:
+    apiVersion: agents.x-k8s.io/v1beta1
+    kind: Sandbox
+    resourceRef:
+      name: xplane-run-7f3cq2xz
+  of:
+    apiVersion: cilium.io/v2
+    kind: CiliumNetworkPolicy
+    resourceRef:
+      name: xplane-run-7f3cq2xz
+  replayDeletion: true
