@@ -159,6 +159,11 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
     _size = _SIZES[_spec.size or "small"]
     _profile = _HARNESS_PROFILES[_spec.harness or "openhands"]
     _maxMinutes = _spec.budget?.maxMinutes or 120
+
+    # R2 (SP1 spike Q2): under gVisor, kubelet's host-side token rotation raises no inotify,
+    # so the proxy's watched_directory never reloads. Each token outlives the run instead,
+    # which widens T8 to the deadline. 600 s is the apiserver's floor.
+    _tokenTTL = max([600, _maxMinutes * 60])
     _profiles = ["github"] + (_spec.egress?.profiles or [])
     _fqdns = [f for p in _profiles for f in _EGRESS_PROFILES[p]]
     _roomRef = _spec.roomRef
@@ -403,10 +408,10 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
                     }]
                     volumes = [
                         {name = "gateway-token", projected = {defaultMode = 288, sources = [{
-                            serviceAccountToken = {audience = "agent-router.{}.{}".format(_role, _class), expirationSeconds = 600, path = "token"}
+                            serviceAccountToken = {audience = "agent-router.{}.{}".format(_role, _class), expirationSeconds = _tokenTTL, path = "token"}
                         }]}}
                         {name = "sts-token", projected = {defaultMode = 288, sources = [{
-                            serviceAccountToken = {audience = "octo-sts/{}/{}".format(_repo, _role), expirationSeconds = 600, path = "token"}
+                            serviceAccountToken = {audience = "octo-sts/{}/{}".format(_repo, _role), expirationSeconds = _tokenTTL, path = "token"}
                         }]}}
                         {name = "proxy-config", configMap = {name = "agent-identity-proxy"}}
                         {name = "proxy-tmp", emptyDir = {medium = "Memory", sizeLimit = "16Mi"}}

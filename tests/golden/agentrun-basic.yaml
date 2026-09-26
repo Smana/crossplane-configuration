@@ -337,7 +337,7 @@ spec:
           sources:
           - serviceAccountToken:
               audience: agent-router.implementer.public
-              expirationSeconds: 600
+              expirationSeconds: 7200
               path: token
       - name: sts-token
         projected:
@@ -345,7 +345,7 @@ spec:
           sources:
           - serviceAccountToken:
               audience: octo-sts/Smana/cloud-native-ref/implementer
-              expirationSeconds: 600
+              expirationSeconds: 7200
               path: token
       - configMap:
           name: agent-identity-proxy

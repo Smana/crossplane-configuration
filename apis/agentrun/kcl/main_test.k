@@ -25,6 +25,11 @@ _run = lambda spec: any -> [any] {
     _render(_xr(spec, {}, {}, {}), {}, _DXR)
 }
 
+_tokenTTLs = lambda spec: any -> [int] {
+    _vols = {v.name: v for v in _pod(_run(spec)).volumes}
+    [_vols[n].projected.sources[0].serviceAccountToken.expirationSeconds for n in ["gateway-token", "sts-token"]]
+}
+
 _kind = lambda res: [any], kind: str -> [any] {
     [r for r in res if r.kind == kind]
 }
@@ -169,7 +174,18 @@ test_token_audiences_and_ttl = lambda {
     _sts = _vols["sts-token"].projected.sources[0].serviceAccountToken
     assert _gw.audience == "agent-router.implementer.public"
     assert _sts.audience == "octo-sts/Smana/cloud-native-ref/implementer"
-    assert _gw.expirationSeconds == 600 and _sts.expirationSeconds == 600, "C3: TTL <= 600 s"
+}
+
+# R2 (SP1 spike Q2): gVisor raises no inotify for kubelet's host-side rotation, so the
+# proxy never reloads a rotated token. Both tokens outlive the run instead.
+test_tokens_outlive_the_run = lambda {
+    assert _tokenTTLs({}) == [7200, 7200], "maxMinutes defaults to 120"
+    assert _tokenTTLs({
+        budget = {maxMinutes = 480}
+    }) == [28800, 28800], "the XRD's maximum"
+    assert _tokenTTLs({
+        budget = {maxMinutes = 5}
+    }) == [600, 600], "the apiserver's floor"
 }
 
 test_data_class_picks_port_and_audience = lambda {
