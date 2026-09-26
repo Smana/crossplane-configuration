@@ -148,10 +148,13 @@ spec:
               previousReason if previousPhase in _TERMINAL_PHASES else "PodFailed" if phase == "Failed" else revoked if revoked in _REVOKE_REASONS else None
           }
 
-          # A malformed annotation is never projected; the last valid value stays.
+          # A malformed annotation is never projected; the last valid value stays. Nor is a
+          # smaller one: the meter's counter resets when a data-plane pod restarts, and a
+          # reset must not refund the run's budget.
           _usageTokens = lambda annotations: any, previous: any -> any {
               _v = _get(annotations, "agents.ogenki.io/usage-tokens")
-              int(_v) if _v and regex.match(_v, "^[0-9]{1,12}$") else previous
+              _n = int(_v) if _v and regex.match(_v, "^[0-9]{1,12}$") else None
+              previous if _n == None or (previous != None and _n < previous) else _n
           }
 
           _pullRequest = lambda annotations: any, repository: str, previous: any -> any {
@@ -475,7 +478,7 @@ spec:
               # deletes composed resources in parallel: the CNP could go first and strand the
               # token for up to an hour. The Usage holds the CNP until the Sandbox is gone,
               # then replays its deletion.
-              _usage = [{
+              _cnpUsage = [{
                   apiVersion = "protection.crossplane.io/v1beta1"
                   kind = "Usage"
                   metadata = _meta("usage", _name + "-cnp", True, {})
@@ -485,7 +488,7 @@ spec:
                       by = {apiVersion = "agents.x-k8s.io/v1beta1", kind = "Sandbox", resourceRef = {name = _name}}
                   }
               }] if _live else []
-              _serviceAccount + _taskConfigMap + _networkPolicy + _usage + _sandboxResource + _status
+              _serviceAccount + _taskConfigMap + _networkPolicy + _cnpUsage + _sandboxResource + _status
           }
 
           items = _render(oxr, ocds, option("params").dxr)

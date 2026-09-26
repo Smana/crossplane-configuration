@@ -219,6 +219,19 @@ test_sts_goes_through_the_router = lambda {
 
 # The preStop revokes the GitHub token through api.github.com, and Crossplane
 # deletes composed resources in parallel: without the Usage the CNP can go first.
+# The meter's counter resets when an agent-router data-plane pod restarts, so a
+# smaller reading is a reset, never a refund: the run's recorded spend only rises.
+test_usage_never_goes_down = lambda {
+    _lower = _status(_render(_xr({}, {"agents.ogenki.io/usage-tokens" = "10"}, {}, {
+        usage = {tokens = 1900000}
+    }), {}, _DXR))
+    assert _lower.usage.tokens == 1900000
+    _higher = _status(_render(_xr({}, {"agents.ogenki.io/usage-tokens" = "1950000"}, {}, {
+        usage = {tokens = 1900000}
+    }), {}, _DXR))
+    assert _higher.usage.tokens == 1950000
+}
+
 test_usage_keeps_the_cnp_until_the_sandbox_is_gone = lambda {
     _u = _kind(_run({}), "Usage")
     assert len(_u) == 1
