@@ -172,10 +172,12 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
     # deletes the pod and with it the Finished condition. If that status write
     # is lost, this annotation is the only memory that the run finished; without
     # it the phase falls back to Pending, un-suspends the Sandbox and re-runs
-    # the task.
+    # the task. Gated on operatingMode == "Suspended": a stray or stale
+    # finished-phase annotation on a Sandbox that is still Running must never
+    # short-circuit an in-progress run to terminal.
     _statusPhase = _previous?.phase or ""
     _finishedFor = _get(_sandbox?.metadata?.annotations, "agents.ogenki.io/finished-phase")
-    _recovered = _statusPhase not in _TERMINAL_PHASES and _finishedFor in ["Succeeded", "Failed"]
+    _recovered = _statusPhase not in _TERMINAL_PHASES and _finishedFor in ["Succeeded", "Failed"] and _sandbox?.spec?.operatingMode == "Suspended"
     _prevPhase = _finishedFor if _recovered else _statusPhase
     _phase = _phaseOf(_ann, _prevPhase, _sandbox)
     _revoked = _get(_ann, "agents.ogenki.io/revoked")

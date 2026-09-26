@@ -59,6 +59,21 @@ _suspendedSandbox = lambda finishedFor: str -> any {
     }
 }
 
+# A still-Running Sandbox carrying a stray/stale finished-phase annotation:
+# the recovery path must require operatingMode == "Suspended" too, or a
+# leftover annotation would short-circuit an in-progress run to terminal.
+_runningSandboxWithStaleAnnotation = lambda finishedFor: str -> any {
+    {
+        "xplane-run-7f3cq2xz-sandbox" = {
+            Resource = {
+                metadata = {creationTimestamp = "2026-09-25T10:00:00Z", annotations = {"agents.ogenki.io/finished-phase" = finishedFor}}
+                spec.operatingMode = "Running"
+                status.conditions = [{type = "Ready", status = "True"}]
+            }
+        }
+    }
+}
+
 _phaseFor = lambda annotations: any, status: any, observed: any -> str {
     _status(_render(_xr({}, annotations, {}, status), observed, _DXR)).phase
 }
@@ -412,4 +427,11 @@ test_lost_status_write_does_not_rerun_the_task = lambda {
     # Only a finished phase is honoured; anything else is ignored.
     assert _phaseFor({}, {}, _suspendedSandbox("Running")) == "Pending"
     assert _phaseFor({}, {}, _suspendedSandbox("Revoked")) == "Pending"
+}
+
+# ---- Controller ruling: the finished-phase annotation is only honoured on a
+# Sandbox the composition actually suspended -- not a Running one. ----
+test_stale_finished_annotation_on_a_running_sandbox_is_ignored = lambda {
+    assert _phaseFor({}, {}, _runningSandboxWithStaleAnnotation("Succeeded")) == "Running"
+    assert _phaseFor({}, {}, _runningSandboxWithStaleAnnotation("Failed")) == "Running"
 }

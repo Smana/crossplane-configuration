@@ -83,8 +83,11 @@ spec:
                   # most one "." between two runs -- so it starts and ends
                   # alphanumeric and never holds "..". It flows unvalidated into
                   # rules.md, BASE_REF and run.json. `main`, `agent/<id>` and a
-                  # 40-char SHA all match.
-                  pattern: '^[A-Za-z0-9]+(?:[_/-]*\.?[_/-]*[A-Za-z0-9]+)*$'
+                  # 40-char SHA all match. The two alternation branches share no
+                  # prefix a backtracker could retry two ways, which keeps this
+                  # linear-time even in non-RE2 engines -- e.g. a UI form built
+                  # from this schema.
+                  pattern: '^[A-Za-z0-9]+(?:(?:[_/-]+(?:\.[_/-]*)?|\.[_/-]*)[A-Za-z0-9]+)*$'
                   x-kubernetes-validations:
                     - {rule: "self == oldSelf", message: "baseRef is immutable"}
                 branch:
