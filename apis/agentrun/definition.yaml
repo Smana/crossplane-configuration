@@ -185,7 +185,7 @@ spec:
                 roomRef:
                   description: Optional room this run joins (SP2).
                   type: string
-                  pattern: '^r-[a-z0-9]{8}$'
+                  pattern: '^[a-z2-7]{8}$'
                 queueName:
                   description: Kueue LocalQueue, set as the queue label on the sandbox pod (SP3).
                   type: string

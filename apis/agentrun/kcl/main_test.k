@@ -98,13 +98,13 @@ test_names_labels_and_principal = lambda {
 }
 
 test_task_label_propagates_from_the_claim = lambda {
-    _res = _render(_xr({}, {}, {"agents.ogenki.io/task" = "t-9f2k"}, {}), {}, _DXR)
-    assert _kind(_res, "Sandbox")[0].spec.podTemplate.metadata.labels["agents.ogenki.io/task"] == "t-9f2k"
+    _res = _render(_xr({}, {}, {"agents.ogenki.io/task" = "6f2kq3ma"}, {}), {}, _DXR)
+    assert _kind(_res, "Sandbox")[0].spec.podTemplate.metadata.labels["agents.ogenki.io/task"] == "6f2kq3ma"
     assert "agents.ogenki.io/task" not in _kind(_run({}), "Sandbox")[0].metadata.labels
     # C3: every object the run creates carries the task label when the claim has one.
     _withTask = [r for r in _res if r.kind != "AgentRun"]
     assert all r in _withTask {
-        r.metadata.labels["agents.ogenki.io/task"] == "t-9f2k"
+        r.metadata.labels["agents.ogenki.io/task"] == "6f2kq3ma"
     }
     _withoutTask = [r for r in _run({}) if r.kind != "AgentRun"]
     assert not any r in _withoutTask {
@@ -267,7 +267,7 @@ test_cnp_is_default_deny_with_named_egress = lambda {
 }
 
 test_room_ref_adds_broker_egress = lambda {
-    _egress = _kind(_run({roomRef = "r-3kq9x2ma"}), "CiliumNetworkPolicy")[0].spec.egress
+    _egress = _kind(_run({roomRef = "3kq7x2ma"}), "CiliumNetworkPolicy")[0].spec.egress
     assert any e in _egress {
         e.toEndpoints and e.toEndpoints[0].matchLabels["app.kubernetes.io/name"] == "room-broker" and e.toPorts[0].ports[0].port == "8443"
     }
@@ -286,8 +286,8 @@ test_size_presets = lambda {
 
 test_branch_defaults_to_run_id = lambda {
     assert _status(_run({})).branch == "agent/7f3cq2xz"
-    assert _status(_run({branch = "agent/t-9f2k"})).branch == "agent/t-9f2k"
-    assert {e.name: e.value for e in _pod(_run({branch = "agent/t-9f2k"})).containers[0].env}.BRANCH == "agent/t-9f2k"
+    assert _status(_run({branch = "agent/6f2kq3ma"})).branch == "agent/6f2kq3ma"
+    assert {e.name: e.value for e in _pod(_run({branch = "agent/6f2kq3ma"})).containers[0].env}.BRANCH == "agent/6f2kq3ma"
 }
 
 test_queue_label = lambda {
