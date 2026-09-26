@@ -306,6 +306,12 @@ spec:
           runAsNonRoot: true
           seccompProfile:
             type: RuntimeDefault
+        startupProbe:
+          failureThreshold: 60
+          httpGet:
+            path: /ready
+            port: 9902
+          periodSeconds: 1
         volumeMounts:
         - mountPath: /etc/envoy
           name: proxy-config

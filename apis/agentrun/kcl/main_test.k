@@ -444,6 +444,10 @@ test_proxy_probes_use_the_health_listener = lambda {
     assert _proxy.ports == [{name = "health", containerPort = 9902, protocol = "TCP"}]
     assert _proxy.readinessProbe.httpGet == {path = "/ready", port = 9902}
     assert _proxy.livenessProbe.httpGet == {path = "/ready", port = 9902}
+
+    # A native sidecar gates the next container only on its startupProbe: without
+    # one the harness can POST its conversation before the proxy serves /mcp.
+    assert _proxy.startupProbe.httpGet == {path = "/ready", port = 9902}
 }
 
 # ---- I3: hot restart's abstract socket/shared memory is a control channel
