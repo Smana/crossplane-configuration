@@ -269,6 +269,9 @@ spec:
         - /etc/envoy/envoy.yaml
         - --log-level
         - warn
+        - --disable-hot-restart
+        - --concurrency
+        - "1"
         image: docker.io/envoyproxy/envoy:distroless-v1.39.1@sha256:eb2c01c13125d1629637cb4e4cce7207009fb7cc2c8027f9742758549d15b6f4
         livenessProbe:
           failureThreshold: 3

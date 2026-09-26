@@ -393,6 +393,13 @@ test_proxy_probes_use_the_health_listener = lambda {
     assert _proxy.livenessProbe.httpGet == {path = "/ready", port = 9902}
 }
 
+# ---- I3: hot restart's abstract socket/shared memory is a control channel
+# into the token holder, reachable from the harness's shared netns/IPC ----
+test_proxy_disables_hot_restart = lambda {
+    _proxy = _pod(_run({})).initContainers[0]
+    assert _proxy.args == ["-c", "/etc/envoy/envoy.yaml", "--log-level", "warn", "--disable-hot-restart", "--concurrency", "1"]
+}
+
 # ---- M2: a finished run is Suspended, stays Ready, and never runs twice ----
 test_finished_run_suspends_its_sandbox = lambda {
     _live = _kind(_run({}), "Sandbox")[0]

@@ -342,7 +342,11 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
                         name = "identity-proxy"
                         image = _IDENTITY_PROXY_IMAGE
                         restartPolicy = "Always"
-                        args = ["-c", "/etc/envoy/envoy.yaml", "--log-level", "warn"]
+                        # --disable-hot-restart: hot restart's abstract socket and shared memory
+                        # segment are reachable by the harness over the shared netns/IPC (I3) --
+                        # a control channel into the only container holding tokens.
+                        # --concurrency 1: this 200m/128Mi sidecar only needs one Envoy worker.
+                        args = ["-c", "/etc/envoy/envoy.yaml", "--log-level", "warn", "--disable-hot-restart", "--concurrency", "1"]
                         ports = [{name = "health", containerPort = _PROXY_HEALTH_PORT, protocol = "TCP"}]
                         readinessProbe = {httpGet = {path = "/ready", port = _PROXY_HEALTH_PORT}, periodSeconds = 5}
                         livenessProbe = {httpGet = {path = "/ready", port = _PROXY_HEALTH_PORT}, periodSeconds = 10, failureThreshold = 3}
