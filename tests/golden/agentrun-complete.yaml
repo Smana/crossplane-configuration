@@ -54,7 +54,6 @@ spec:
       rules:
         dns:
         - matchName: agent-router.envoy-gateway-system.svc.cluster.local
-        - matchName: octo-sts.agent-system.svc.cluster.local
         - matchName: room-broker.agent-system.svc.cluster.local
         - matchName: github.com
         - matchName: api.github.com
@@ -74,13 +73,7 @@ spec:
     - ports:
       - port: "8081"
         protocol: TCP
-  - toEndpoints:
-    - matchLabels:
-        app.kubernetes.io/name: octo-sts
-        io.kubernetes.pod.namespace: agent-system
-    toPorts:
-    - ports:
-      - port: "8080"
+      - port: "8082"
         protocol: TCP
   - toFQDNs:
     - matchName: github.com
@@ -411,3 +404,36 @@ metadata:
     kind: AgentRun
     name: xplane-run-k2m4q7wa
     uid: ""
+---
+apiVersion: protection.crossplane.io/v1beta1
+kind: Usage
+metadata:
+  annotations:
+    agents.ogenki.io/principal: system:factory
+    crossplane.io/composition-resource-name: xplane-run-k2m4q7wa-usage
+  labels:
+    agents.ogenki.io/role: tester
+    agents.ogenki.io/run-id: k2m4q7wa
+    agents.ogenki.io/task: t-9f2kq3ma
+    crossplane.io/composite: xplane-run-k2m4q7wa
+  name: xplane-run-k2m4q7wa-cnp
+  namespace: agents
+  ownerReferences:
+  - apiVersion: cloud.ogenki.io/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: AgentRun
+    name: xplane-run-k2m4q7wa
+    uid: ""
+spec:
+  by:
+    apiVersion: agents.x-k8s.io/v1beta1
+    kind: Sandbox
+    resourceRef:
+      name: xplane-run-k2m4q7wa
+  of:
+    apiVersion: cilium.io/v2
+    kind: CiliumNetworkPolicy
+    resourceRef:
+      name: xplane-run-k2m4q7wa
+  replayDeletion: true

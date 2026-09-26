@@ -83,14 +83,14 @@ _phaseFor = lambda annotations: any, status: any, observed: any -> str {
     _status(_render(_xr({}, annotations, {}, status), observed, _DXR)).phase
 }
 
-test_renders_four_resources_and_status = lambda {
+test_renders_five_resources_and_status = lambda {
     _res = _run({})
-    assert [r.kind for r in _res] == ["ServiceAccount", "ConfigMap", "CiliumNetworkPolicy", "Sandbox", "AgentRun"]
+    assert [r.kind for r in _res] == ["ServiceAccount", "ConfigMap", "CiliumNetworkPolicy", "Usage", "Sandbox", "AgentRun"]
 }
 
 test_names_labels_and_principal = lambda {
     _res = _run({})
-    assert [r.metadata.name for r in _res if r.kind != "AgentRun"] == [_NAME, _NAME + "-task", _NAME, _NAME]
+    assert [r.metadata.name for r in _res if r.kind != "AgentRun"] == [_NAME, _NAME + "-task", _NAME, _NAME + "-cnp", _NAME]
     _composed = [r for r in _res if r.kind != "AgentRun"]
     assert all r in _composed {
         r.metadata.labels["agents.ogenki.io/run-id"] == "7f3cq2xz" and r.metadata.labels["agents.ogenki.io/role"] == "implementer" and r.metadata.annotations["agents.ogenki.io/principal"] == "human:312345678901234567"
@@ -194,14 +194,38 @@ test_data_class_picks_port_and_audience = lambda {
     assert _env.LLM_BASE_URL == "http://127.0.0.1:4002/v1"
     assert _env.MCP_URL == "http://127.0.0.1:4002/mcp"
     _router = [e for e in _kind(_res, "CiliumNetworkPolicy")[0].spec.egress if e.toEndpoints and e.toEndpoints[0].matchLabels["io.kubernetes.pod.namespace"] == "envoy-gateway-system"][0]
-    assert _router.toPorts[0].ports == [{port = "8081", protocol = "TCP"}], "internal runs reach only the internal listener"
+    assert _router.toPorts[0].ports == [{port = "8081", protocol = "TCP"}, {port = "8082", protocol = "TCP"}], "internal runs reach only the internal and sts listeners"
     assert {v.name: v for v in _pod(_res).volumes}["gateway-token"].projected.sources[0].serviceAccountToken.audience == "agent-router.tester.internal"
 }
 
 test_public_run_reaches_only_the_public_listener = lambda {
     _egress = _kind(_run({}), "CiliumNetworkPolicy")[0].spec.egress
     _ports = [p.port for e in _egress if e.toEndpoints and e.toEndpoints[0].matchLabels["io.kubernetes.pod.namespace"] == "envoy-gateway-system" for t in e.toPorts for p in t.ports]
-    assert _ports == ["8080"]
+    assert _ports == ["8080", "8082"]
+}
+
+# Owner decision 2026-09-26: octo-sts is reached only through agent-router's sts
+# listener, whose JWT check is pinned to this cluster's issuer. A token minted in
+# another EKS cluster matches octo-sts's issuer pattern, so no direct path may exist.
+test_sts_goes_through_the_router = lambda {
+    _spec = _kind(_run({}), "CiliumNetworkPolicy")[0].spec
+    _names = [n.matchName for n in _spec.egress[0].toPorts[0].rules.dns]
+    assert "octo-sts.agent-system.svc.cluster.local" not in _names
+    _egressRules = _spec.egress
+    assert not any e in _egressRules {
+        e.toEndpoints and e.toEndpoints[0].matchLabels["app.kubernetes.io/name"] == "octo-sts"
+    }, "no direct egress to octo-sts"
+}
+
+# The preStop revokes the GitHub token through api.github.com, and Crossplane
+# deletes composed resources in parallel: without the Usage the CNP can go first.
+test_usage_keeps_the_cnp_until_the_sandbox_is_gone = lambda {
+    _u = _kind(_run({}), "Usage")
+    assert len(_u) == 1
+    assert _u[0].apiVersion == "protection.crossplane.io/v1beta1"
+    assert _u[0].spec.replayDeletion == True
+    assert _u[0].spec.of == {apiVersion = "cilium.io/v2", kind = "CiliumNetworkPolicy", resourceRef = {name = "xplane-run-7f3cq2xz"}}
+    assert _u[0].spec.by == {apiVersion = "agents.x-k8s.io/v1beta1", kind = "Sandbox", resourceRef = {name = "xplane-run-7f3cq2xz"}}
 }
 
 test_cnp_is_default_deny_with_named_egress = lambda {
@@ -336,7 +360,7 @@ test_budget_exhausted_latches_over_a_later_manual_revocation = lambda {
 # Succeeded/Failed keep the Sandbox object, suspended (M2). ----
 test_succeeded_run_has_no_service_account_but_keeps_its_sandbox = lambda {
     _res = _render(_xr({}, {}, {}, {phase = "Succeeded"}), {}, _DXR)
-    assert [r.kind for r in _res] == ["ConfigMap", "CiliumNetworkPolicy", "Sandbox", "AgentRun"]
+    assert [r.kind for r in _res] == ["ConfigMap", "CiliumNetworkPolicy", "Usage", "Sandbox", "AgentRun"]
 }
 
 # ---- F3: startedAt/finishedAt survive a vanished Sandbox, same "last valid
@@ -442,7 +466,7 @@ test_lost_status_write_does_not_rerun_the_task = lambda {
     _ok = _render(_xr({}, {}, {}, {}), _suspendedSandbox("Succeeded"), _DXR)
     assert _status(_ok).phase == "Succeeded"
     assert "reason" not in _status(_ok)
-    assert [r.kind for r in _ok] == ["ConfigMap", "CiliumNetworkPolicy", "Sandbox", "AgentRun"], "no fresh ServiceAccount"
+    assert [r.kind for r in _ok] == ["ConfigMap", "CiliumNetworkPolicy", "Usage", "Sandbox", "AgentRun"], "no fresh ServiceAccount"
     assert _kind(_ok, "Sandbox")[0].spec.operatingMode == "Suspended"
     _ko = _render(_xr({}, {}, {}, {}), _suspendedSandbox("Failed"), _DXR)
     assert _status(_ko).phase == "Failed" and _status(_ko).reason == "PodFailed"

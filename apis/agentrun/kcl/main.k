@@ -58,11 +58,15 @@ _EGRESS_PROFILES = {
 # Fully qualified, so ndots:1 sends them to kube-dns as-is and the L7 DNS rule
 # can answer exactly these names (Q4).
 _ROUTER_FQDN = "agent-router.envoy-gateway-system.svc.cluster.local"
-_STS_FQDN = "octo-sts.agent-system.svc.cluster.local"
 _BROKER_FQDN = "room-broker.agent-system.svc.cluster.local"
 
 # One agent-router listener per data class (S6): the port IS the class.
 _ROUTER_PORT = {public = 8080, internal = 8081}
+
+# octo-sts is reached only through agent-router's sts listener, whose JWT check is
+# pinned to this cluster's issuer: octo-sts's own issuer pattern would also accept
+# a token minted by any other EKS cluster in the region (owner decision 2026-09-26).
+_STS_PORT = 8082
 _PROXY_PORT = {public = 4000, internal = 4002}
 
 # The identity-proxy's dedicated health listener (Envoy's health_check filter,
@@ -256,7 +260,7 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
             "run.json" = json.encode({runId = _runId, role = _role, repository = _repo, baseRef = _baseRef, branch = _branch, dataClass = _class, model = _model, principal = _spec.principal})
         }
     }]
-    _dnsNames = [_ROUTER_FQDN, _STS_FQDN] + ([_BROKER_FQDN] if _roomRef else []) + _fqdns
+    _dnsNames = [_ROUTER_FQDN] + ([_BROKER_FQDN] if _roomRef else []) + _fqdns
     _networkPolicy = [{
         apiVersion = "cilium.io/v2"
         kind = "CiliumNetworkPolicy"
@@ -290,13 +294,7 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
                     toEndpoints = [{
                         matchLabels = {"io.kubernetes.pod.namespace" = "envoy-gateway-system", "gateway.envoyproxy.io/owning-gateway-name" = "agent-router", "gateway.envoyproxy.io/owning-gateway-namespace" = "agent-system"}
                     }]
-                    toPorts = [{ports = [{port = str(_ROUTER_PORT[_class]), protocol = "TCP"}]}]
-                }
-                {
-                    toEndpoints = [{
-                        matchLabels = {"io.kubernetes.pod.namespace" = "agent-system", "app.kubernetes.io/name" = "octo-sts"}
-                    }]
-                    toPorts = [{ports = [{port = "8080", protocol = "TCP"}]}]
+                    toPorts = [{ports = [{port = str(_ROUTER_PORT[_class]), protocol = "TCP"}, {port = str(_STS_PORT), protocol = "TCP"}]}]
                 }
                 {
                     toFQDNs = [{matchName = f} for f in _fqdns]
@@ -451,7 +449,22 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
                 pullRequest = _pr
         }
     }]
-    _serviceAccount + _taskConfigMap + _networkPolicy + _sandboxResource + _status
+
+    # The preStop revokes the GitHub token through api.github.com, and Crossplane
+    # deletes composed resources in parallel: the CNP could go first and strand the
+    # token for up to an hour. The Usage holds the CNP until the Sandbox is gone,
+    # then replays its deletion.
+    _usage = [{
+        apiVersion = "protection.crossplane.io/v1beta1"
+        kind = "Usage"
+        metadata = _meta("usage", _name + "-cnp", True, {})
+        spec = {
+            replayDeletion = True
+            of = {apiVersion = "cilium.io/v2", kind = "CiliumNetworkPolicy", resourceRef = {name = _name}}
+            by = {apiVersion = "agents.x-k8s.io/v1beta1", kind = "Sandbox", resourceRef = {name = _name}}
+        }
+    }] if _live else []
+    _serviceAccount + _taskConfigMap + _networkPolicy + _usage + _sandboxResource + _status
 }
 
 items = _render(oxr, ocds, option("params").dxr)
