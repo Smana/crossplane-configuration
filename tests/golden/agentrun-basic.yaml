@@ -5,31 +5,13 @@ metadata:
   name: xplane-run-7f3cq2xz
   namespace: agents
 status:
+  branch: agent/7f3cq2xz
   conditions:
   - lastTransitionTime: "2024-01-01T00:00:00Z"
-    message: 'Unready resources: , xplane-run-7f3cq2xz-sa, and xplane-run-7f3cq2xz-sandbox'
+    message: 'Unready resources: xplane-run-7f3cq2xz-sa, xplane-run-7f3cq2xz-sandbox'
     reason: Creating
     status: "False"
     type: Ready
----
-apiVersion: cloud.ogenki.io/v1alpha1
-kind: AgentRun
-metadata:
-  annotations:
-    crossplane.io/composition-resource-name: ""
-  generateName: xplane-run-7f3cq2xz-
-  labels:
-    crossplane.io/composite: xplane-run-7f3cq2xz
-  namespace: agents
-  ownerReferences:
-  - apiVersion: cloud.ogenki.io/v1alpha1
-    blockOwnerDeletion: true
-    controller: true
-    kind: AgentRun
-    name: xplane-run-7f3cq2xz
-    uid: ""
-status:
-  branch: agent/7f3cq2xz
   conversationId: ""
   phase: Pending
   runId: 7f3cq2xz
