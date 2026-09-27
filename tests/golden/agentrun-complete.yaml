@@ -165,9 +165,7 @@ spec:
       activeDeadlineSeconds: 14400
       automountServiceAccountToken: false
       containers:
-      - args:
-        - --port
-        - "8000"
+      - args: []
         env:
         - name: RUN_ID
           value: k2m4q7wa
@@ -197,7 +195,13 @@ spec:
           value: /run/agent/task/rules.md
         - name: HOME
           value: /home/openhands
-        image: ghcr.io/openhands/agent-server:1.49.5-python@sha256:1e7b08ffef732d6520e0b0048931b6ef425a7742c5fb80a82c9397a285c669eb
+        image: ghcr.io/smana/agent-harness:v0.1.0-pr2110.29b5f228@sha256:3cc93e005a9e1c3b3c8608be5f4ce9ab48b3890196de0aeac59a5d6565708cd4
+        lifecycle:
+          preStop:
+            exec:
+              command:
+              - /usr/local/bin/git-credential-agent
+              - revoke
         livenessProbe:
           exec:
             command:
@@ -433,8 +437,8 @@ metadata:
     uid: ""
 spec:
   by:
-    apiVersion: agents.x-k8s.io/v1beta1
-    kind: Sandbox
+    apiVersion: v1
+    kind: Pod
     resourceRef:
       name: xplane-run-k2m4q7wa
   of:

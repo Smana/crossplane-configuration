@@ -45,20 +45,22 @@ spec:
           # carries one, so bumping a digest is a release of this package.
           _HARNESS_PROFILES = {
               openhands = {
-                  image = "ghcr.io/openhands/agent-server:1.49.5-python@sha256:1e7b08ffef732d6520e0b0048931b6ef425a7742c5fb80a82c9397a285c669eb"
+                  # Pre-release pin for live testing on #2110; re-pin to
+                  # ghcr.io/smana/agent-harness:v0.1.0@sha256:... once #2110 merges and
+                  # CI publishes that tag.
+                  image = "ghcr.io/smana/agent-harness:v0.1.0-pr2110.29b5f228@sha256:3cc93e005a9e1c3b3c8608be5f4ce9ab48b3890196de0aeac59a5d6565708cd4"
                   port = 8000
-                  # No --host: agent-server keeps its default 127.0.0.1. Its API is
-                  # unauthenticated, so it stays off the pod network — the node included
-                  # — and the probes run inside the container instead (_localGet).
-                  args = ["--port", "8000"]
+                  # agent-run, the image's entrypoint, starts agent-server on
+                  # 127.0.0.1:8000 itself. Its API is unauthenticated, so it stays off the
+                  # pod network, and the probes run inside the container (_localGet).
+                  args = []
+                  # A deleted run revokes its GitHub token at once instead of leaving it
+                  # live until it expires (SC-07). The Usage below keeps the CNP's
+                  # api.github.com egress open until this has run.
+                  preStop = ["/usr/local/bin/git-credential-agent", "revoke"]
               }
           }
 
-          # The openhands profile above carries no preStop key: the pinned upstream
-          # agent-server image doesn't ship /usr/local/bin/git-credential-agent.
-          # CC-2's agent-harness profile (phase 6) bakes the binary in and sets this
-          # key; setting it here against upstream would log FailedPreStopHook on
-          # every pod termination.
           _IDENTITY_PROXY_IMAGE = "docker.io/envoyproxy/envoy:distroless-v1.39.1@sha256:eb2c01c13125d1629637cb4e4cce7207009fb7cc2c8027f9742758549d15b6f4"
 
           # spec.size: CPU request -> limit, 2 GiB per CPU, scratch for /workspace.
@@ -479,8 +481,11 @@ spec:
 
               # The preStop revokes the GitHub token through api.github.com, and Crossplane
               # deletes composed resources in parallel: the CNP could go first and strand the
-              # token for up to an hour. The Usage holds the CNP until the Sandbox is gone,
-              # then replays its deletion.
+              # token for up to an hour. The Usage holds the CNP until the pod is gone, then
+              # replays its deletion. It is keyed on the Pod, not the Sandbox: a Sandbox has
+              # no finalizer and leaves the API while its pod still runs preStop and the
+              # SIGTERM cleanup, and the CNP went with it (seen live, 2026-09-27). Crossplane
+              # reads the Pod with a plain GET, so it needs `get pods` in the run's namespace.
               _cnpUsage = [{
                   apiVersion = "protection.crossplane.io/v1beta1"
                   kind = "Usage"
@@ -488,9 +493,9 @@ spec:
                   spec = {
                       replayDeletion = True
                       of = {apiVersion = "cilium.io/v2", kind = "CiliumNetworkPolicy", resourceRef = {name = _name}}
-                      by = {apiVersion = "agents.x-k8s.io/v1beta1", kind = "Sandbox", resourceRef = {name = _name}}
+                      by = {apiVersion = "v1", kind = "Pod", resourceRef = {name = _name}}
                   }
-              }] if _live else []
+              }] if _live and _saLive else []
               _serviceAccount + _taskConfigMap + _networkPolicy + _cnpUsage + _sandboxResource + _status
           }
 
