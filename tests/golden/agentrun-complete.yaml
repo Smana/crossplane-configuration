@@ -437,8 +437,8 @@ metadata:
     uid: ""
 spec:
   by:
-    apiVersion: agents.x-k8s.io/v1beta1
-    kind: Sandbox
+    apiVersion: v1
+    kind: Pod
     resourceRef:
       name: xplane-run-k2m4q7wa
   of:

@@ -232,13 +232,16 @@ test_usage_never_goes_down = lambda {
     assert _higher.usage.tokens == 1950000
 }
 
-test_usage_keeps_the_cnp_until_the_sandbox_is_gone = lambda {
+test_usage_keeps_the_cnp_until_the_pod_is_gone = lambda {
     _u = _kind(_run({}), "Usage")
     assert len(_u) == 1
     assert _u[0].apiVersion == "protection.crossplane.io/v1beta1"
     assert _u[0].spec.replayDeletion == True
     assert _u[0].spec.of == {apiVersion = "cilium.io/v2", kind = "CiliumNetworkPolicy", resourceRef = {name = "xplane-run-7f3cq2xz"}}
-    assert _u[0].spec.by == {apiVersion = "agents.x-k8s.io/v1beta1", kind = "Sandbox", resourceRef = {name = "xplane-run-7f3cq2xz"}}
+
+    # The Sandbox has no finalizer and leaves the API while its pod still runs
+    # preStop and SIGTERM cleanup; keyed on it, the CNP went in the same second.
+    assert _u[0].spec.by == {apiVersion = "v1", kind = "Pod", resourceRef = {name = "xplane-run-7f3cq2xz"}}
 }
 
 test_cnp_is_default_deny_with_named_egress = lambda {

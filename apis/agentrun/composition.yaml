@@ -481,8 +481,11 @@ spec:
 
               # The preStop revokes the GitHub token through api.github.com, and Crossplane
               # deletes composed resources in parallel: the CNP could go first and strand the
-              # token for up to an hour. The Usage holds the CNP until the Sandbox is gone,
-              # then replays its deletion.
+              # token for up to an hour. The Usage holds the CNP until the pod is gone, then
+              # replays its deletion. It is keyed on the Pod, not the Sandbox: a Sandbox has
+              # no finalizer and leaves the API while its pod still runs preStop and the
+              # SIGTERM cleanup, and the CNP went with it (seen live, 2026-09-27). Crossplane
+              # reads the Pod with a plain GET, so it needs `get pods` in the run's namespace.
               _cnpUsage = [{
                   apiVersion = "protection.crossplane.io/v1beta1"
                   kind = "Usage"
@@ -490,7 +493,7 @@ spec:
                   spec = {
                       replayDeletion = True
                       of = {apiVersion = "cilium.io/v2", kind = "CiliumNetworkPolicy", resourceRef = {name = _name}}
-                      by = {apiVersion = "agents.x-k8s.io/v1beta1", kind = "Sandbox", resourceRef = {name = _name}}
+                      by = {apiVersion = "v1", kind = "Pod", resourceRef = {name = _name}}
                   }
               }] if _live else []
               _serviceAccount + _taskConfigMap + _networkPolicy + _cnpUsage + _sandboxResource + _status
