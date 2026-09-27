@@ -195,7 +195,7 @@ spec:
           value: /run/agent/task/rules.md
         - name: HOME
           value: /home/openhands
-        image: ghcr.io/smana/agent-harness:v0.1.0-pr2110.d8134ede@sha256:b279f8f94c52627634c52a3078b90e49c41c3b195b4e2439eaa6cf1c8cfc6370
+        image: ghcr.io/smana/agent-harness:v0.1.0-pr2110.c3c9ebe5@sha256:3ec307c08cc10198555668d0f4db438a63e6c375b348f84b5ef8c5a3a8378cf2
         livenessProbe:
           exec:
             command:
