@@ -376,7 +376,8 @@ test_budget_exhausted_latches_over_a_later_manual_revocation = lambda {
 # Succeeded/Failed keep the Sandbox object, suspended (M2). ----
 test_succeeded_run_has_no_service_account_but_keeps_its_sandbox = lambda {
     _res = _render(_xr({}, {}, {}, {phase = "Succeeded"}), {}, _DXR)
-    assert [r.kind for r in _res] == ["ConfigMap", "CiliumNetworkPolicy", "Usage", "Sandbox", "AgentRun"]
+    # No Usage: a finished run's pod is gone, and Crossplane would log a failed lookup of it until GC.
+    assert [r.kind for r in _res] == ["ConfigMap", "CiliumNetworkPolicy", "Sandbox", "AgentRun"]
 }
 
 # ---- F3: startedAt/finishedAt survive a vanished Sandbox, same "last valid
@@ -497,7 +498,7 @@ test_lost_status_write_does_not_rerun_the_task = lambda {
     _ok = _render(_xr({}, {}, {}, {}), _suspendedSandbox("Succeeded"), _DXR)
     assert _status(_ok).phase == "Succeeded"
     assert "reason" not in _status(_ok)
-    assert [r.kind for r in _ok] == ["ConfigMap", "CiliumNetworkPolicy", "Usage", "Sandbox", "AgentRun"], "no fresh ServiceAccount"
+    assert [r.kind for r in _ok] == ["ConfigMap", "CiliumNetworkPolicy", "Sandbox", "AgentRun"], "no fresh ServiceAccount, no Usage"
     assert _kind(_ok, "Sandbox")[0].spec.operatingMode == "Suspended"
     _ko = _render(_xr({}, {}, {}, {}), _suspendedSandbox("Failed"), _DXR)
     assert _status(_ko).phase == "Failed" and _status(_ko).reason == "PodFailed"

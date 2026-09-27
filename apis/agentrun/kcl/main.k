@@ -474,7 +474,7 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
             of = {apiVersion = "cilium.io/v2", kind = "CiliumNetworkPolicy", resourceRef = {name = _name}}
             by = {apiVersion = "v1", kind = "Pod", resourceRef = {name = _name}}
         }
-    }] if _live else []
+    }] if _live and _saLive else []
     _serviceAccount + _taskConfigMap + _networkPolicy + _cnpUsage + _sandboxResource + _status
 }
 
