@@ -196,6 +196,12 @@ spec:
         - name: HOME
           value: /home/openhands
         image: ghcr.io/smana/agent-harness:v0.1.0-pr2110.29b5f228@sha256:3cc93e005a9e1c3b3c8608be5f4ce9ab48b3890196de0aeac59a5d6565708cd4
+        lifecycle:
+          preStop:
+            exec:
+              command:
+              - /usr/local/bin/git-credential-agent
+              - revoke
         livenessProbe:
           exec:
             command:

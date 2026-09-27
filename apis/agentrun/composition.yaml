@@ -54,14 +54,13 @@ spec:
                   # 127.0.0.1:8000 itself. Its API is unauthenticated, so it stays off the
                   # pod network, and the probes run inside the container (_localGet).
                   args = []
+                  # A deleted run revokes its GitHub token at once instead of leaving it
+                  # live until it expires (SC-07). The Usage below keeps the CNP's
+                  # api.github.com egress open until this has run.
+                  preStop = ["/usr/local/bin/git-credential-agent", "revoke"]
               }
           }
 
-          # The openhands profile above carries no preStop key: the pinned upstream
-          # agent-server image doesn't ship /usr/local/bin/git-credential-agent.
-          # CC-2's agent-harness profile (phase 6) bakes the binary in and sets this
-          # key; setting it here against upstream would log FailedPreStopHook on
-          # every pod termination.
           _IDENTITY_PROXY_IMAGE = "docker.io/envoyproxy/envoy:distroless-v1.39.1@sha256:eb2c01c13125d1629637cb4e4cce7207009fb7cc2c8027f9742758549d15b6f4"
 
           # spec.size: CPU request -> limit, 2 GiB per CPU, scratch for /workspace.
