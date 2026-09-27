@@ -140,9 +140,7 @@ spec:
       activeDeadlineSeconds: 7200
       automountServiceAccountToken: false
       containers:
-      - args:
-        - --port
-        - "8000"
+      - args: []
         env:
         - name: RUN_ID
           value: 7f3cq2xz
@@ -172,7 +170,7 @@ spec:
           value: /run/agent/task/rules.md
         - name: HOME
           value: /home/openhands
-        image: ghcr.io/openhands/agent-server:1.49.5-python@sha256:1e7b08ffef732d6520e0b0048931b6ef425a7742c5fb80a82c9397a285c669eb
+        image: ghcr.io/smana/agent-harness:v0.1.0-pr2110.d8134ede@sha256:b279f8f94c52627634c52a3078b90e49c41c3b195b4e2439eaa6cf1c8cfc6370
         livenessProbe:
           exec:
             command:

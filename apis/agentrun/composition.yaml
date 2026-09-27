@@ -45,12 +45,15 @@ spec:
           # carries one, so bumping a digest is a release of this package.
           _HARNESS_PROFILES = {
               openhands = {
-                  image = "ghcr.io/openhands/agent-server:1.49.5-python@sha256:1e7b08ffef732d6520e0b0048931b6ef425a7742c5fb80a82c9397a285c669eb"
+                  # Pre-release pin for live testing on #2110; re-pin to
+                  # ghcr.io/smana/agent-harness:v0.1.0@sha256:... once #2110 merges and
+                  # CI publishes that tag.
+                  image = "ghcr.io/smana/agent-harness:v0.1.0-pr2110.d8134ede@sha256:b279f8f94c52627634c52a3078b90e49c41c3b195b4e2439eaa6cf1c8cfc6370"
                   port = 8000
-                  # No --host: agent-server keeps its default 127.0.0.1. Its API is
-                  # unauthenticated, so it stays off the pod network — the node included
-                  # — and the probes run inside the container instead (_localGet).
-                  args = ["--port", "8000"]
+                  # agent-run, the image's entrypoint, starts agent-server on
+                  # 127.0.0.1:8000 itself. Its API is unauthenticated, so it stays off the
+                  # pod network, and the probes run inside the container (_localGet).
+                  args = []
               }
           }
 
