@@ -48,7 +48,7 @@ spec:
                   # Pre-release pin for live testing on #2110; re-pin to
                   # ghcr.io/smana/agent-harness:v0.1.0@sha256:... once #2110 merges and
                   # CI publishes that tag.
-                  image = "ghcr.io/smana/agent-harness:v0.1.0-pr2110.c3c9ebe5@sha256:3ec307c08cc10198555668d0f4db438a63e6c375b348f84b5ef8c5a3a8378cf2"
+                  image = "ghcr.io/smana/agent-harness:v0.1.0-pr2110.36ff559d@sha256:9e499d09b542e11139cf59592f1ab1f54a7a297c52780f92904acf730d1bb2a0"
                   port = 8000
                   # agent-run, the image's entrypoint, starts agent-server on
                   # 127.0.0.1:8000 itself. Its API is unauthenticated, so it stays off the
