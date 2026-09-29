@@ -59,6 +59,8 @@ tasks:
             exit 1
           }
           kcl test . -Y settings-example.yaml
+          # APIs with a second mode test it too (sqlinstance: generated credentials).
+          if [ -f settings-generated.yaml ]; then kcl test . -Y settings-generated.yaml; fi
 
   schema:
     desc: Validate every example claim against the shipped XRDs

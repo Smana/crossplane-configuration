@@ -69,6 +69,19 @@ spec:
                     required:
                       - name
                       - superuser
+                credentials:
+                  description: |
+                    Where role passwords come from. `store` (default): the ClusterSecretStore
+                    key cnpg/<instance>/roles/<owner>, which an operator seeds. `generated`: an
+                    External Secrets Password generator per role, created once in the cluster and
+                    never seeded; roles may then own no database (their secret is
+                    <instance>-cnpg-role-<role>).
+                  type: object
+                  properties:
+                    source:
+                      type: string
+                      enum: [store, generated]
+                      default: store
 
                 instances:
                   description: The number of instances to create.

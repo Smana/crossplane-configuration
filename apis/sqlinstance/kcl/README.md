@@ -243,6 +243,23 @@ The module automatically creates External Secrets for:
 ### Secret Store Configuration
 Secrets are stored in your configured secret store (e.g., AWS Secrets Manager, HashiCorp Vault) and synchronized using External Secrets with the `clustersecretstore` ClusterSecretStore.
 
+## Credentials
+
+`spec.credentials.source` picks where role passwords come from.
+
+| Source | Password | Roles owning no database | Secret per database owner | Secret per role owning nothing |
+|---|---|---|---|---|
+| `store` (default) | ClusterSecretStore key `cnpg/<xr>/roles/<owner>`, seeded by an operator | rejected | `<xr>-cnpg-<db>` | none |
+| `generated` | ESO `Password` generator, `refreshPolicy: CreatedOnce`, never seeded | allowed | `<xr>-cnpg-<db>` | `<xr>-cnpg-role-<role, _ → ->`, `uri` on the first database |
+
+Every secret carries `username`, `password` and `uri`. A generated password is
+never rotated: rotating it would lock the running cluster out of its own role.
+The superuser secret (`createSuperuser`) still reads the store in both modes.
+
+`generated` makes Crossplane create `generators.external-secrets.io` `Password`
+objects, so its service account needs RBAC on that group (cloud-native-ref
+Task 1.17 grants it).
+
 ## IAM Permissions
 
 When backups are enabled, the module creates IAM resources with the following S3 permissions:
