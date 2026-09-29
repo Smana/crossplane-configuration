@@ -25,6 +25,20 @@ spec:
         - name: Branch
           type: string
           jsonPath: .status.branch
+        # Observability plan O8 (formerly SP3 CC-F1, SD13). TOKENS and PR stay empty until a
+        # meter (SP4 PR 2) and the factory (SP3) write their annotations.
+        - name: Principal
+          type: string
+          jsonPath: .spec.principal
+        - name: PR
+          type: string
+          jsonPath: .status.pullRequest
+        - name: Tokens
+          type: integer
+          jsonPath: .status.usage.tokens
+        - name: Reason
+          type: string
+          jsonPath: .status.reason
       schema:
         openAPIV3Schema:
           type: object
