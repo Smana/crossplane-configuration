@@ -514,3 +514,17 @@ test_stale_finished_annotation_on_a_running_sandbox_is_ignored = lambda {
     assert _phaseFor({}, {}, _runningSandboxWithStaleAnnotation("Succeeded")) == "Running"
     assert _phaseFor({}, {}, _runningSandboxWithStaleAnnotation("Failed")) == "Running"
 }
+
+# Observability plan O1, SO-4: the run's spans go to the collector's OTLP/HTTP traces
+# path and nowhere else. Not its gRPC port, not VictoriaTraces: the collector is what
+# strips content before anything is stored.
+test_traces_go_only_to_the_collector_traces_path = lambda {
+    _spec = _kind(_run({}), "CiliumNetworkPolicy")[0].spec
+    _obs = [e for e in _spec.egress if e.toEndpoints and e.toEndpoints[0].matchLabels["io.kubernetes.pod.namespace"] == "observability"]
+    assert len(_obs) == 1, "one egress rule into observability"
+    assert _obs[0].toEndpoints == [{
+        matchLabels = {"io.kubernetes.pod.namespace" = "observability", "app.kubernetes.io/name" = "agent-traces-collector"}
+    }]
+    assert _obs[0].toPorts == [{ports = [{port = "4318", protocol = "TCP"}], rules = {http = [{method = "POST", path = "/v1/traces"}]}}]
+    assert "agent-traces-collector.observability.svc.cluster.local" in [n.matchName for n in _spec.egress[0].toPorts[0].rules.dns]
+}

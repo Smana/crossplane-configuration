@@ -4,7 +4,8 @@
 # Renders, all named xplane-run-<runId>[-suffix] in the claim's namespace:
 #   ServiceAccount       no RBAC anywhere, automount off      (not once terminal)
 #   ConfigMap -task      task, platform rules, run metadata
-#   CiliumNetworkPolicy  default-deny, class-scoped gateway port, FQDN profiles
+#   CiliumNetworkPolicy  default-deny, class-scoped gateway port, trace
+#                        collector, FQDN profiles
 #   Sandbox              agents.x-k8s.io/v1beta1 under gVisor (not when revoked;
 #                        Suspended once Succeeded/Failed)
 # and patches the XR status.
@@ -61,6 +62,11 @@ _EGRESS_PROFILES = {
 # can answer exactly these names (Q4).
 _ROUTER_FQDN = "agent-router.envoy-gateway-system.svc.cluster.local"
 _BROKER_FQDN = "room-broker.agent-system.svc.cluster.local"
+
+# The agent trace collector (cloud-native-ref observability plan, O1): the only place a
+# run's spans may go. It drops every non-metadata attribute before VictoriaTraces.
+_TRACES_FQDN = "agent-traces-collector.observability.svc.cluster.local"
+_TRACES_PORT = 4318
 
 # One agent-router listener per data class (S6): the port IS the class.
 _ROUTER_PORT = {public = 8080, internal = 8081}
@@ -265,7 +271,7 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
             "run.json" = json.encode({runId = _runId, role = _role, repository = _repo, baseRef = _baseRef, branch = _branch, dataClass = _class, model = _model, principal = _spec.principal})
         }
     }]
-    _dnsNames = [_ROUTER_FQDN] + ([_BROKER_FQDN] if _roomRef else []) + _fqdns
+    _dnsNames = [_ROUTER_FQDN, _TRACES_FQDN] + ([_BROKER_FQDN] if _roomRef else []) + _fqdns
     _networkPolicy = [{
         apiVersion = "cilium.io/v2"
         kind = "CiliumNetworkPolicy"
@@ -300,6 +306,17 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
                         matchLabels = {"io.kubernetes.pod.namespace" = "envoy-gateway-system", "gateway.envoyproxy.io/owning-gateway-name" = "agent-router", "gateway.envoyproxy.io/owning-gateway-namespace" = "agent-system"}
                     }]
                     toPorts = [{ports = [{port = str(_ROUTER_PORT[_class]), protocol = "TCP"}, {port = str(_STS_PORT), protocol = "TCP"}]}]
+                }
+                {
+                    # Spans to the collector's OTLP/HTTP traces path only (SO-4): neither its
+                    # gRPC port nor VictoriaTraces, which would skip the content filter.
+                    toEndpoints = [{
+                        matchLabels = {"io.kubernetes.pod.namespace" = "observability", "app.kubernetes.io/name" = "agent-traces-collector"}
+                    }]
+                    toPorts = [{
+                        ports = [{port = str(_TRACES_PORT), protocol = "TCP"}]
+                        rules.http = [{method = "POST", path = "/v1/traces"}]
+                    }]
                 }
                 {
                     toFQDNs = [{matchName = f} for f in _fqdns]
