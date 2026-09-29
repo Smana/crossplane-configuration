@@ -183,6 +183,19 @@ jobs:
           echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           task push VERSION=${{ steps.v.outputs.version }}
 
+      # The XRD-to-CRD file release.yaml attaches as an asset, for cloud-native-ref's gate on a
+      # pinned pre-release (its CI passes it as XRD_CRDS_FILE). An OCI artifact, not a GitHub
+      # pre-release: that would create a v* tag, and "Derive the pre-release version" above
+      # takes the newest v* tag as the last release.
+      - name: Publish the XRD CRDs as an OCI artifact
+        run: |
+          task crds
+          mkdir -p build/xrd-artifact && cp build/xrd-crds.yaml build/xrd-artifact/
+          flux push artifact "oci://ghcr.io/smana/crossplane-configuration-xrd-crds:${{ steps.v.outputs.version }}" \
+            --path=build/xrd-artifact \
+            --source="${{ github.server_url }}/${{ github.repository }}" \
+            --revision="${{ steps.v.outputs.version }}@sha1:$(git rev-parse HEAD)"
+
       # Printed to the job summary rather than posted as a PR comment: a comment
       # needs `pull-requests: write`, and one more write scope is not worth saving
       # a click.
@@ -197,6 +210,8 @@ jobs:
             echo
             echo "Pin that in \`infrastructure/base/crossplane/configuration-aws/configuration-packages.yaml\`"
             echo "in cloud-native-ref to test this PR against a live cluster."
+            echo
+            echo "XRD CRDs for cloud-native-ref's gate: \`oci://ghcr.io/smana/crossplane-configuration-xrd-crds:${{ steps.v.outputs.version }}\`"
             echo
             echo "Throwaway build — cut a \`v*\` tag on main for the real release."
           } >> "$GITHUB_STEP_SUMMARY"
