@@ -25,7 +25,8 @@ spec:
           # Renders, all named xplane-run-<runId>[-suffix] in the claim's namespace:
           #   ServiceAccount       no RBAC anywhere, automount off      (not once terminal)
           #   ConfigMap -task      task, platform rules, run metadata
-          #   CiliumNetworkPolicy  default-deny, class-scoped gateway port, FQDN profiles
+          #   CiliumNetworkPolicy  default-deny, class-scoped gateway port, trace
+          #                        collector, FQDN profiles
           #   Sandbox              agents.x-k8s.io/v1beta1 under gVisor (not when revoked;
           #                        Suspended once Succeeded/Failed)
           # and patches the XR status.
@@ -82,6 +83,11 @@ spec:
           # can answer exactly these names (Q4).
           _ROUTER_FQDN = "agent-router.envoy-gateway-system.svc.cluster.local"
           _BROKER_FQDN = "room-broker.agent-system.svc.cluster.local"
+
+          # The agent trace collector (cloud-native-ref observability plan, O1): the only place a
+          # run's spans may go. It drops every non-metadata attribute before VictoriaTraces.
+          _TRACES_FQDN = "agent-traces-collector.observability.svc.cluster.local"
+          _TRACES_PORT = 4318
 
           # One agent-router listener per data class (S6): the port IS the class.
           _ROUTER_PORT = {public = 8080, internal = 8081}
@@ -157,6 +163,13 @@ spec:
               _v = _get(annotations, "agents.ogenki.io/usage-tokens")
               _n = int(_v) if _v and regex.match(_v, "^[0-9]{1,12}$") else None
               previous if _n == None or (previous != None and _n < previous) else _n
+          }
+
+          # SP3's factory writes its task span's W3C traceparent at creation (R46). Correlation only
+          # (observability plan O22): a malformed value is never projected.
+          _traceparent = lambda annotations: any -> any {
+              _v = _get(annotations, "agents.ogenki.io/traceparent")
+              _v if _v and regex.match(_v, "^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$") else None
           }
 
           _pullRequest = lambda annotations: any, repository: str, previous: any -> any {
@@ -237,6 +250,7 @@ spec:
               _finished = _condition(_sandbox, "Finished")
               _usage = _usageTokens(_ann, _previous?.usage?.tokens)
               _pr = _pullRequest(_ann, _repo, _previous?.pullRequest)
+              _tp = _traceparent(_ann)
 
               # `_get`, not `_previous?.reason`: a single-level `?.` miss on an
               # otherwise-present dict doesn't reliably compare `!= None` in KCL 0.11.3
@@ -286,7 +300,7 @@ spec:
                       "run.json" = json.encode({runId = _runId, role = _role, repository = _repo, baseRef = _baseRef, branch = _branch, dataClass = _class, model = _model, principal = _spec.principal})
                   }
               }]
-              _dnsNames = [_ROUTER_FQDN] + ([_BROKER_FQDN] if _roomRef else []) + _fqdns
+              _dnsNames = [_ROUTER_FQDN, _TRACES_FQDN] + ([_BROKER_FQDN] if _roomRef else []) + _fqdns
               _networkPolicy = [{
                   apiVersion = "cilium.io/v2"
                   kind = "CiliumNetworkPolicy"
@@ -321,6 +335,17 @@ spec:
                                   matchLabels = {"io.kubernetes.pod.namespace" = "envoy-gateway-system", "gateway.envoyproxy.io/owning-gateway-name" = "agent-router", "gateway.envoyproxy.io/owning-gateway-namespace" = "agent-system"}
                               }]
                               toPorts = [{ports = [{port = str(_ROUTER_PORT[_class]), protocol = "TCP"}, {port = str(_STS_PORT), protocol = "TCP"}]}]
+                          }
+                          {
+                              # Spans to the collector's OTLP/HTTP traces path only (SO-4): neither its
+                              # gRPC port nor VictoriaTraces, which would skip the content filter.
+                              toEndpoints = [{
+                                  matchLabels = {"io.kubernetes.pod.namespace" = "observability", "app.kubernetes.io/name" = "agent-traces-collector"}
+                              }]
+                              toPorts = [{
+                                  ports = [{port = str(_TRACES_PORT), protocol = "TCP"}]
+                                  rules.http = [{method = "POST", path = "/v1/traces"}]
+                              }]
                           }
                           {
                               toFQDNs = [{matchName = f} for f in _fqdns]
@@ -410,7 +435,16 @@ spec:
                                       {name = "TASK_FILE", value = "/run/agent/task/task.md"}
                                       {name = "RULES_FILE", value = "/run/agent/task/rules.md"}
                                       {name = "HOME", value = "/home/openhands"}
-                                  ]
+                                      # Spans to the trace collector (observability plan O19): a base URL, so lmnr
+                                      # 0.7.60 posts spans to /v1/traces and any log record to /v1/logs, which the
+                                      # run CNP drops. http/protobuf: the CNP rule is an L7 HTTP one.
+                                      {name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = "http://{}:{}".format(_TRACES_FQDN, _TRACES_PORT)}
+                                      {name = "OTEL_EXPORTER_OTLP_PROTOCOL", value = "http/protobuf"}
+                                      # Hygiene only (O6): the collector drops content. The OpenAI instrument
+                                      # honours LMNR_TRACE_CONTENT and injects traceparent; lmnr's LiteLLM one does neither.
+                                      {name = "LMNR_INSTRUMENTS", value = "openai"}
+                                      {name = "LMNR_TRACE_CONTENT", value = "false"}
+                                  ] + ([{name = "TRACEPARENT", value = _tp}] if _tp else [])
                                   # No containerPort: agent-server listens on loopback only.
                                   # timeoutSeconds covers python3's start-up under gVisor
                                   # plus urlopen's own 2 s; kubelet's 1 s default would
