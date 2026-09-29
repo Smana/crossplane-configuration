@@ -541,3 +541,15 @@ test_harness_exports_traces_to_the_collector = lambda {
     assert _env.LMNR_TRACE_CONTENT == "false"
     assert "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT" not in _env, "a traces URL would also carry lmnr's log records (O19)"
 }
+
+# Observability plan O21 (SP3 R46): the factory's task span reaches the harness as TRACEPARENT,
+# only when the annotation is a W3C traceparent. None, or a malformed one: a fresh trace.
+test_traceparent_annotation_reaches_the_harness = lambda {
+    _tp = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+    _envOf = lambda annotations: any -> any {
+        {e.name: e.value for e in _pod(_render(_xr({}, annotations, {}, {}), {}, _DXR)).containers[0].env}
+    }
+    assert _envOf({"agents.ogenki.io/traceparent" = _tp}).TRACEPARENT == _tp
+    assert "TRACEPARENT" not in _envOf({"agents.ogenki.io/traceparent" = "00-4bf9-00f0-01"}), "a malformed traceparent is never projected"
+    assert "TRACEPARENT" not in _envOf({}), "no annotation: the harness starts a fresh trace (task agent:run)"
+}

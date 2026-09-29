@@ -144,6 +144,13 @@ _usageTokens = lambda annotations: any, previous: any -> any {
     previous if _n == None or (previous != None and _n < previous) else _n
 }
 
+# SP3's factory writes its task span's W3C traceparent at creation (R46). Correlation only
+# (observability plan O22): a malformed value is never projected.
+_traceparent = lambda annotations: any -> any {
+    _v = _get(annotations, "agents.ogenki.io/traceparent")
+    _v if _v and regex.match(_v, "^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$") else None
+}
+
 _pullRequest = lambda annotations: any, repository: str, previous: any -> any {
     _v = _get(annotations, "agents.ogenki.io/pull-request")
     _v if _v and regex.match(_v, "^https://github\\.com/" + repository.replace(".", "\\.") + "/pull/[0-9]+$") else previous
@@ -222,6 +229,7 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
     _finished = _condition(_sandbox, "Finished")
     _usage = _usageTokens(_ann, _previous?.usage?.tokens)
     _pr = _pullRequest(_ann, _repo, _previous?.pullRequest)
+    _tp = _traceparent(_ann)
 
     # `_get`, not `_previous?.reason`: a single-level `?.` miss on an
     # otherwise-present dict doesn't reliably compare `!= None` in KCL 0.11.3
@@ -415,7 +423,7 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
                             # honours LMNR_TRACE_CONTENT and injects traceparent; lmnr's LiteLLM one does neither.
                             {name = "LMNR_INSTRUMENTS", value = "openai"}
                             {name = "LMNR_TRACE_CONTENT", value = "false"}
-                        ]
+                        ] + ([{name = "TRACEPARENT", value = _tp}] if _tp else [])
                         # No containerPort: agent-server listens on loopback only.
                         # timeoutSeconds covers python3's start-up under gVisor
                         # plus urlopen's own 2 s; kubelet's 1 s default would
