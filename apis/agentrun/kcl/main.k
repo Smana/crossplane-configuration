@@ -70,10 +70,12 @@ _BROKER_FQDN = "room-broker.agent-system.svc.cluster.local"
 _BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.0.1-pr4.79d1d066@sha256:20be5d42bf1362798ee3949f4b91be213e501a9611c60e56e5c3054663f2ea7c"
 _BRIDGE_HEALTH_PORT = 8085
 
-# The kubelet signals the bridge only once the harness has exited, so its flush
-# gets what the harness's preStop (a revoke bounded by a 10 s urlopen, ~12 s
-# under gVisor) leaves of the 30 s grace, minus the bridge's 2 s health drain.
+# The kubelet signals the bridge only once the harness has exited, so a room
+# run's grace covers, in order: the preStop revoke (a 10 s urlopen, ~12 s under
+# gVisor), agent-run's SIGTERM cleanup (server.wait(10) and a second revoke,
+# ~11 s), this flush (12 s) and the bridge's health drain (2 s): 37 s of 45.
 _BRIDGE_FLUSH_GRACE = "12s"
+_ROOM_GRACE_SECONDS = 45
 
 # The room token keeps the apiserver's 600 s floor: the bridge re-reads it before
 # every request, and a plain read sees kubelet's rotation even under gVisor (SP1
@@ -416,7 +418,7 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
                     activeDeadlineSeconds = _maxMinutes * 60
                     enableServiceLinks = False
                     shareProcessNamespace = False
-                    terminationGracePeriodSeconds = 30
+                    terminationGracePeriodSeconds = _ROOM_GRACE_SECONDS if _roomRef else 30
                     dnsConfig = {options = [{name = "ndots", value = "1"}]}
                     securityContext = {
                         runAsNonRoot = True

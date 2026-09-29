@@ -572,8 +572,14 @@ test_room_bridge_only_with_a_room = lambda {
     assert _env.BROKER_CA_FILE == "/etc/room-broker-ca/ca.crt"
     assert _env.HARNESS_URL == "http://127.0.0.1:8000" and _env.ROOM_TOKEN_FILE == "/var/run/secrets/agents/room/token"
     assert _env.EGRESS_PROFILES == "github"
-    # The flush, the harness's preStop revoke (12 s) and the bridge's health drain (2 s) fit the grace.
-    assert int(_env.FLUSH_GRACE.removesuffix("s")) + 12 + 2 <= _p.terminationGracePeriodSeconds
+
+    # The kubelet signals the bridge only after the harness exits: its preStop revoke,
+    # then agent-run's SIGTERM cleanup (server.wait(10) and a second revoke), come first.
+    _preStop = 12
+    _harnessCleanup = 11
+    _healthDrain = 2
+    assert _preStop + _harnessCleanup + int(_env.FLUSH_GRACE.removesuffix("s")) + _healthDrain <= _p.terminationGracePeriodSeconds
+    assert _pod(_run({})).terminationGracePeriodSeconds == 30, "no room, no longer grace"
     assert "GOMEMLIMIT" not in _env, "the binary sets the 48 MiB its buffer budget is sized for"
     assert _b.ports == [{name = "bridge-health", containerPort = 8085, protocol = "TCP"}]
     assert _b.resources == {requests = {cpu = "20m", memory = "32Mi"}, limits = {cpu = "100m", memory = "64Mi"}}
@@ -587,8 +593,9 @@ test_only_the_bridge_mounts_the_room_token = lambda {
     assert sorted([v.name for v in _p.volumes if _projectsToken(v)]) == ["gateway-token", "room-token", "sts-token"]
     _room = [v for v in _p.volumes if v.name == "room-token"][0].projected.sources[0].serviceAccountToken
     assert _room.audience == "room-broker" and _room.expirationSeconds == 600
-    _ca = [v for v in _p.volumes if v.name == "room-broker-ca"][0].secret
-    assert _ca.secretName == "room-broker-ca" and _ca.items == [{key = "ca.crt", path = "ca.crt"}]
+    # Fail closed: an optional CA would only trade the FailedMount for a crash-loop.
+    _ca = [v for v in _p.volumes if v.name == "room-broker-ca"][0]
+    assert _ca == {name = "room-broker-ca", secret = {secretName = "room-broker-ca", defaultMode = 288, items = [{key = "ca.crt", path = "ca.crt"}]}}
     _all = _p.initContainers + _p.containers
     assert [c.name for c in _all if any m in c.volumeMounts {m.name in ["room-token", "room-broker-ca"]}] == ["room-bridge"]
     _bridgeMounts = _p.initContainers[1].volumeMounts
@@ -607,6 +614,9 @@ test_only_the_bridge_mounts_the_room_token = lambda {
 
 test_bridge_health_is_open_to_kubelet_only = lambda {
     _ing = _kind(_run({roomRef = "3kq7x2ma"}), "CiliumNetworkPolicy")[0].spec.ingress
-    assert len(_ing) == 2 and _ing[1].fromEntities == ["host"] and _ing[1].toPorts[0].ports[0].port == "8085"
+    assert _ing == [
+        {fromEntities = ["host"], toPorts = [{ports = [{port = "9902", protocol = "TCP"}]}]}
+        {fromEntities = ["host"], toPorts = [{ports = [{port = "8085", protocol = "TCP"}]}]}
+    ], "kubelet only, nothing ever dials into a sandbox (C4, ruling AP)"
     assert len(_kind(_run({}), "CiliumNetworkPolicy")[0].spec.ingress) == 1, "no room, no bridge port"
 }
