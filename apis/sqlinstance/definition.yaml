@@ -54,7 +54,11 @@ spec:
                     properties:
                       name:
                         type: string
-                        description: The name of the role.
+                        description: |
+                          The name of the role: lowercase, starting with a letter, at most 63
+                          characters (the Postgres identifier limit). Its secret name is derived
+                          from it, and a Kubernetes name has no uppercase.
+                        pattern: "^[a-z][a-z0-9_-]{0,62}$"
                       comment:
                         type: string
                         description: The comment for the role.
@@ -73,15 +77,22 @@ spec:
                   description: |
                     Where role passwords come from. `store` (default): the ClusterSecretStore
                     key cnpg/<instance>/roles/<owner>, which an operator seeds. `generated`: an
-                    External Secrets Password generator per role, created once in the cluster and
-                    never seeded; roles may then own no database (their secret is
-                    <instance>-cnpg-role-<role>).
+                    External Secrets Password generator per role, created once in the cluster;
+                    roles may then own no database (their secret is <instance>-cnpg-role-<role>).
+                    `generated` refuses createSuperuser, whose secret only the store provides.
+                    Fixed at creation: switching would replace every role's password.
                   type: object
+                  # Materialises source's default, so the immutability rule also covers a
+                  # claim created without `credentials` and later given one.
+                  default: {}
                   properties:
                     source:
                       type: string
                       enum: [store, generated]
                       default: store
+                      x-kubernetes-validations:
+                        - rule: "self == oldSelf"
+                          message: "credentials.source is immutable: switching it replaces every role's password"
 
                 instances:
                   description: The number of instances to create.

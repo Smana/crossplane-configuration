@@ -222,7 +222,9 @@ test_generated_mode_renders_one_generator_per_secret = lambda {
         _gens = sorted([r.metadata.name for r in items if r.kind == "Password"])
         _es = sorted([r.metadata.name for r in items if r.kind == "ExternalSecret"])
         assert _gens == _es, "each ExternalSecret reads its own generator: {} vs {}".format(_gens, _es)
-        assert _es == ["xplane-rooms-cnpg-role-rooms-broker", "xplane-rooms-cnpg-role-rooms-retention", "xplane-rooms-cnpg-rooms"]
+        _roleSecrets = ["xplane-rooms-cnpg-role-rooms-broker", "xplane-rooms-cnpg-role-rooms-retention"]
+        _want = _roleSecrets + ["xplane-rooms-cnpg-rooms"] if option("params").oxr.spec.databases else _roleSecrets
+        assert _es == _want, "expected {}, got {}".format(_want, _es)
 
     assert True
 }
@@ -241,11 +243,15 @@ test_every_managed_role_has_a_secret = lambda {
     assert True
 }
 
+# With no database at all (settings-generated-nodb.yaml), a role's uri falls
+# back to `postgres`, the database every cluster has.
 test_non_owner_role_uri_targets_the_first_database = lambda {
     if _isGenerated():
+        _dbs = option("params").oxr.spec.databases
+        _db = _dbs[0].name if _dbs else "postgres"
         _es = [r for r in items if r.kind == "ExternalSecret" and r.metadata.name == "xplane-rooms-cnpg-role-rooms-broker"][0]
         assert _es.spec.target.template.data.username == "rooms_broker"
-        assert _es.spec.target.template.data.uri.endswith("@xplane-rooms-cnpg-cluster-rw.agent-system.svc:5432/rooms")
+        assert _es.spec.target.template.data.uri.endswith("@xplane-rooms-cnpg-cluster-rw.agent-system.svc:5432/" + _db), "expected the uri to end in /{}, got {}".format(_db, _es.spec.target.template.data.uri)
 
     assert True
 }

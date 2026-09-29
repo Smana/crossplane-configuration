@@ -49,6 +49,18 @@ _rolesOwningNothing = [r.name for r in oxr.spec.roles or [] if not _ownedDb(r.na
 
 assert _generated or not _rolesOwningNothing, "SQLInstance {}/{}: roles {} own no database, which needs spec.credentials.source: generated".format(oxr.metadata.namespace, oxr.metadata.name, _rolesOwningNothing)
 
+# The superuser password has no generator here: it only ever comes from the
+# ClusterSecretStore, the very store generated mode exists to avoid.
+assert not (_generated and oxr.spec.createSuperuser), "SQLInstance {}/{}: generated mode has no superuser; createSuperuser needs spec.credentials.source: store (its secret comes from the ClusterSecretStore)".format(oxr.metadata.namespace, oxr.metadata.name)
+
+# Secret names are derived, so distinct inputs can collide: role `foo` (owning
+# nothing) and database `role-foo`, or roles `a_b` and `a-b`. Two ExternalSecrets
+# with one name would fight over a single Secret.
+_secretNames = [oxr.metadata.name + "-cnpg-" + db.name for db in oxr.spec.databases or []] + [_roleSecretName(r) for r in _rolesOwningNothing] + ([oxr.metadata.name + "-cnpg-superuser"] if oxr.spec.createSuperuser else [])
+_duplicateSecrets = [n for i, n in _secretNames if n in _secretNames[:i:]]
+
+assert not _duplicateSecrets, "SQLInstance {}/{}: duplicate secret names {}: rename a role or database".format(oxr.metadata.namespace, oxr.metadata.name, _duplicateSecrets)
+
 _rwHost = oxr.metadata.name + "-cnpg-cluster-rw." + oxr.metadata.namespace + ".svc:5432"
 
 _passwordGenerator = lambda name: str -> any {
