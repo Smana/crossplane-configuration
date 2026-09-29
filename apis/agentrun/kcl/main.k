@@ -406,6 +406,15 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
                             {name = "TASK_FILE", value = "/run/agent/task/task.md"}
                             {name = "RULES_FILE", value = "/run/agent/task/rules.md"}
                             {name = "HOME", value = "/home/openhands"}
+                            # Spans to the trace collector (observability plan O19): a base URL, so lmnr
+                            # 0.7.60 posts spans to /v1/traces and any log record to /v1/logs, which the
+                            # run CNP drops. http/protobuf: the CNP rule is an L7 HTTP one.
+                            {name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = "http://{}:{}".format(_TRACES_FQDN, _TRACES_PORT)}
+                            {name = "OTEL_EXPORTER_OTLP_PROTOCOL", value = "http/protobuf"}
+                            # Hygiene only (O6): the collector drops content. The OpenAI instrument
+                            # honours LMNR_TRACE_CONTENT and injects traceparent; lmnr's LiteLLM one does neither.
+                            {name = "LMNR_INSTRUMENTS", value = "openai"}
+                            {name = "LMNR_TRACE_CONTENT", value = "false"}
                         ]
                         # No containerPort: agent-server listens on loopback only.
                         # timeoutSeconds covers python3's start-up under gVisor
