@@ -50,6 +50,7 @@ spec:
       rules:
         dns:
         - matchName: agent-router.envoy-gateway-system.svc.cluster.local
+        - matchName: agent-traces-collector.observability.svc.cluster.local
         - matchName: github.com
         - matchName: api.github.com
         - matchName: codeload.github.com
@@ -66,6 +67,18 @@ spec:
         protocol: TCP
       - port: "8082"
         protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        app.kubernetes.io/name: agent-traces-collector
+        io.kubernetes.pod.namespace: observability
+    toPorts:
+    - ports:
+      - port: "4318"
+        protocol: TCP
+      rules:
+        http:
+        - method: POST
+          path: /v1/traces
   - toFQDNs:
     - matchName: github.com
     - matchName: api.github.com
@@ -170,7 +183,15 @@ spec:
           value: /run/agent/task/rules.md
         - name: HOME
           value: /home/openhands
-        image: ghcr.io/smana/agent-harness:v0.1.0-pr2110.29b5f228@sha256:3cc93e005a9e1c3b3c8608be5f4ce9ab48b3890196de0aeac59a5d6565708cd4
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: http://agent-traces-collector.observability.svc.cluster.local:4318
+        - name: OTEL_EXPORTER_OTLP_PROTOCOL
+          value: http/protobuf
+        - name: LMNR_INSTRUMENTS
+          value: openai
+        - name: LMNR_TRACE_CONTENT
+          value: "false"
+        image: ghcr.io/smana/agent-harness:v0.1.2-pr2136.516c73c0@sha256:9715068d8d011617ba02923d0edbaf7775b79c8e60ec86682455e8cda7a96bd2
         lifecycle:
           preStop:
             exec:
