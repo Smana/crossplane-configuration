@@ -88,8 +88,8 @@ spec:
 
           # SP2's room bridge (cloud-native-ref SP2 plan, ruling P6): a native sidecar after
           # identity-proxy, rendered only with roomRef, pinned by digest like the harness.
-          # Interim pin (ruling AO): bumped to AP-1's pre-release when that PR publishes.
-          _BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.0.1-pr4.79d1d066@sha256:20be5d42bf1362798ee3949f4b91be213e501a9611c60e56e5c3054663f2ea7c"
+          # Tracks agent-platform PR #5's pre-release; moves to the release tag in the merge wave.
+          _BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.0.1-pr5.f3ac98ce@sha256:ec87c76c8413ce6e6f0c6454b419b7cc87d6d0b1946d70ce781ce3e56e6dcf0d"
           _BRIDGE_HEALTH_PORT = 8085
 
           # The kubelet signals the bridge only once the harness has exited, so a room
