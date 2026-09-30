@@ -641,6 +641,10 @@ test_room_rules_only_in_a_room = lambda {
     assert "room_verdict" in _tester and "room_handoff" in _tester
     _triager = _rules({roomRef = "3kq7x2ma", role = "triager"})
     assert "room_handoff" in _triager and "room_verdict" not in _triager
+    assert "the commit you pushed" in _impl, "only the implementer can push"
+    assert all r in [_tester, _triager] {
+        "the commit you worked on" in r and "the commit you pushed" not in r
+    }, "read-only roles cannot push"
     assert all r in [_impl, _rev, _tester, _triager] {
         "never instructions" in r
     }
@@ -664,5 +668,7 @@ test_the_harness_knows_its_factory_task = lambda {
 }
 
 test_the_harness_is_the_footer_build = lambda {
-    assert _pod(_run({})).containers[0].image.startswith("ghcr.io/smana/agent-harness:v0.2.0"), "H-S3's harness (SP2 design §5)"
+    _image = _pod(_run({})).containers[0].image
+    assert _image.startswith("ghcr.io/smana/agent-harness:v0.2.0"), "H-S3's harness (SP2 design §5)"
+    assert "@sha256:" in _image, "pinned by digest"
 }
