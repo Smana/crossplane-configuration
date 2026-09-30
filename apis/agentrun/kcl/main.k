@@ -25,10 +25,11 @@ ocds = option("params").ocds
 # carries one, so bumping a digest is a release of this package.
 _HARNESS_PROFILES = {
     openhands = {
-        # Pre-release pin for live testing on #2110; re-pin to
-        # ghcr.io/smana/agent-harness:v0.1.0@sha256:... once #2110 merges and
-        # CI publishes that tag.
-        image = "ghcr.io/smana/agent-harness:v0.1.0-pr2110.29b5f228@sha256:3cc93e005a9e1c3b3c8608be5f4ce9ab48b3890196de0aeac59a5d6565708cd4"
+        # Observability plan O21: the run's root span, LMNR_SPAN_CONTEXT, trace_id in the step log.
+        # Pre-release pin from cloud-native-ref#2136; re-pin to
+        # ghcr.io/smana/agent-harness:v0.1.2@sha256:... once it merges and CI
+        # publishes that tag.
+        image = "ghcr.io/smana/agent-harness:v0.1.2-pr2136.516c73c0@sha256:9715068d8d011617ba02923d0edbaf7775b79c8e60ec86682455e8cda7a96bd2"
         port = 8000
         # agent-run, the image's entrypoint, starts agent-server on
         # 127.0.0.1:8000 itself. Its API is unauthenticated, so it stays off the
