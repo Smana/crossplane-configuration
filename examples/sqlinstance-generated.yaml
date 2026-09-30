@@ -1,0 +1,38 @@
+---
+# SQLInstance with in-cluster generated credentials (spec.credentials.source:
+# generated): no secret store is seeded, and login roles may own no database.
+# Used by cloud-native-ref's room log (SP2): an owner for Atlas, an append-only
+# application role, and a retention role.
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: SQLInstance
+metadata:
+  name: xplane-rooms
+  namespace: agent-system
+  uid: "b2c3d4e5-6f70-8901-bcde-f12345678901"
+spec:
+  instances: 1
+  size: small
+  storageSize: 20Gi
+  postgresVersion: "18"
+  credentials:
+    source: generated
+  databases:
+    - name: rooms
+      owner: rooms_owner
+  roles:
+    - name: rooms_owner
+      comment: Owns the schema; Atlas migrates as it
+      superuser: false
+    - name: rooms_broker
+      comment: Appends to and reads the log, nothing else
+      superuser: false
+    - name: rooms_retention
+      comment: Deletes rooms closed past their retention
+      superuser: false
+  atlasSchema:
+    url: https://github.com/Smana/agent-platform
+    ref: main
+    path: internal/store/migrations
+  backup:
+    schedule: "0 0 2 * * *"
+    bucketName: eu-west-3-ogenki-cnpg-backups

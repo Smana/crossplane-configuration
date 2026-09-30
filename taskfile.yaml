@@ -59,6 +59,28 @@ tasks:
             exit 1
           }
           kcl test . -Y settings-example.yaml
+          # APIs with a second mode test it too (sqlinstance: generated credentials).
+          for s in settings-generated*.yaml; do
+            [ -e "$s" ] || continue
+            kcl test . -Y "$s"
+          done
+          # A claim the module must refuse: the render has to fail, and with the
+          # message on the file's `# expect:` line, not with an unrelated error.
+          for s in settings-reject-*.yaml; do
+            [ -e "$s" ] || continue
+            want=$(sed -n 's/^# expect: //p' "$s")
+            [ -n "$want" ] || { echo "ERROR: $s has no '# expect:' line"; exit 1; }
+            if out=$(kcl run main.k -Y "$s" 2>&1); then
+              echo "ERROR: $s rendered; the module must refuse it ($want)"
+              exit 1
+            fi
+            echo "$out" | grep -qF -- "$want" || {
+              echo "ERROR: $s failed, but not with: $want"
+              echo "$out" | tail -5
+              exit 1
+            }
+            echo "REJECTED $s"
+          done
 
   schema:
     desc: Validate every example claim against the shipped XRDs
