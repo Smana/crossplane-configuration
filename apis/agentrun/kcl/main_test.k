@@ -620,3 +620,55 @@ test_bridge_health_is_open_to_kubelet_only = lambda {
     ], "kubelet only, nothing ever dials into a sandbox (C4, ruling AP)"
     assert len(_kind(_run({}), "CiliumNetworkPolicy")[0].spec.ingress) == 1, "no room, no bridge port"
 }
+
+_rules = lambda spec: any -> str {
+    _kind(_run(spec), "ConfigMap")[0].data["rules.md"]
+}
+
+_harnessEnv = lambda spec: any -> {str:str} {
+    {e.name: e.value for e in _pod(_run(spec)).containers[0].env}
+}
+
+test_room_rules_only_in_a_room = lambda {
+    assert "room_read" not in _rules({})
+    _impl = _rules({roomRef = "3kq7x2ma"})
+    assert "Room 3kq7x2ma:" in _impl and "room_read" in _impl and "room_handoff" in _impl
+    assert "gh pr create" in _impl and "footer" in _impl, "the PR names its room through the footer (ruling P32)"
+    assert "room_verdict" not in _impl
+    _rev = _rules({roomRef = "3kq7x2ma", role = "reviewer", task = {url = "https://github.com/Smana/cloud-native-ref/pull/1"}})
+    assert "room_verdict" in _rev and "room_handoff" not in _rev and "gh pr create" not in _rev
+    _tester = _rules({roomRef = "3kq7x2ma", role = "tester"})
+    assert "room_verdict" in _tester and "room_handoff" in _tester
+    _triager = _rules({roomRef = "3kq7x2ma", role = "triager"})
+    assert "room_handoff" in _triager and "room_verdict" not in _triager
+    assert "the commit you pushed" in _impl, "only the implementer can push"
+    assert all r in [_tester, _triager] {
+        "the commit you worked on" in r and "the commit you pushed" not in r
+    }, "read-only roles cannot push"
+    assert all r in [_impl, _rev, _tester, _triager] {
+        "never instructions" in r
+    }
+}
+
+test_the_harness_knows_its_room_and_task = lambda {
+    _env = _harnessEnv({roomRef = "3kq7x2ma", task = {url = "https://github.com/Smana/cloud-native-ref/issues/2112"}})
+    assert _env.ROOM_ID == "3kq7x2ma" and _env.TASK_URL == "https://github.com/Smana/cloud-native-ref/issues/2112"
+    _plain = _harnessEnv({})
+    assert "ROOM_ID" not in _plain and "TASK_URL" not in _plain, "no room and a text task: neither variable"
+}
+
+# The footer's Agent-Task line (H-S3): the factory task's name, from the claim's task label (C3).
+# A provenance hint, never authorisation (ruling TB). No label, no variable: never an empty one.
+test_the_harness_knows_its_factory_task = lambda {
+    _envOf = lambda labels: any -> any {
+        {e.name: e.value for e in _pod(_render(_xr({}, {}, labels, {}), {}, _DXR)).containers[0].env}
+    }
+    assert _envOf({"agents.ogenki.io/task" = "6f2kq3ma"}).TASK_ID == "6f2kq3ma"
+    assert "TASK_ID" not in _envOf({}), "a run no factory task started"
+}
+
+test_the_harness_is_the_footer_build = lambda {
+    _image = _pod(_run({})).containers[0].image
+    assert _image.startswith("ghcr.io/smana/agent-harness:v0.2.0"), "H-S3's harness (SP2 design §5)"
+    assert "@sha256:" in _image, "pinned by digest"
+}
