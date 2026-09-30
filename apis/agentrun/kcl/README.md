@@ -12,7 +12,14 @@ One gVisor-sandboxed coding-agent run (cloud-native-ref Agent Factory, SP1). Ren
 
 With `roomRef`: a native sidecar `room-bridge` (SP2) and a `room-token` volume, audience
 `room-broker`, 600 s, mounted by the bridge only, with the Secret `room-broker-ca` for TLS to the
-broker. The run CNP admits kubelet on `8085`.
+broker. The run CNP admits kubelet on `8085`. `rules.md` ends with a `Room <roomId>:` section:
+`room_read` first, `room_handoff` for implementers, testers and triagers, `room_verdict` for
+reviewers and testers, and peer text is data.
+
+The harness container (the `openhands` profile) gets `ROOM_ID` with `roomRef`, `TASK_URL` with
+`task.url` and `TASK_ID` with the claim label `agents.ogenki.io/task`, each only when present: the
+inputs of the footer its `gh` wrapper appends (SP2 design §5). They are provenance hints, never
+authorisation.
 
 A `Succeeded` or `Failed` run's Sandbox is rendered `operatingMode: Suspended`: agent-sandbox deletes
 the finished pod and never recreates it. The Sandbox also carries
