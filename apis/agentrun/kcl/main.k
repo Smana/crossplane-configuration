@@ -7,7 +7,8 @@
 #   CiliumNetworkPolicy  default-deny, class-scoped gateway port, trace
 #                        collector, FQDN profiles
 #   Sandbox              agents.x-k8s.io/v1beta1 under gVisor (not when revoked;
-#                        Suspended once Succeeded/Failed)
+#                        Suspended once Succeeded/Failed); with roomRef, the
+#                        room-bridge sidecar (SP2)
 # and patches the XR status.
 #
 # Status has ONE writer, this composition (C3). Controllers write annotations;
@@ -63,6 +64,24 @@ _EGRESS_PROFILES = {
 # can answer exactly these names (Q4).
 _ROUTER_FQDN = "agent-router.envoy-gateway-system.svc.cluster.local"
 _BROKER_FQDN = "room-broker.agent-system.svc.cluster.local"
+
+# SP2's room bridge (cloud-native-ref SP2 plan, ruling P6): a native sidecar after
+# identity-proxy, rendered only with roomRef, pinned by digest like the harness.
+# Tracks agent-platform PR #6's pre-release; moves to the release tag in the merge wave.
+_BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.0.1-pr6.e335dd32@sha256:814e637c9ad77c3f88779cbefe2f600f0ef8d5a7f954f4bc489f2467f14338d2"
+_BRIDGE_HEALTH_PORT = 8085
+
+# The kubelet signals the bridge only once the harness has exited, so a room
+# run's grace covers, in order: the preStop revoke (a 10 s urlopen, ~12 s under
+# gVisor), agent-run's SIGTERM cleanup (server.wait(10) and a second revoke,
+# ~11 s), this flush (12 s) and the bridge's health drain (2 s): 37 s of 45.
+_BRIDGE_FLUSH_GRACE = "12s"
+_ROOM_GRACE_SECONDS = 45
+
+# The room token keeps the apiserver's 600 s floor: the bridge re-reads it before
+# every request, and a plain read sees kubelet's rotation even under gVisor (SP1
+# spike Q2). No token here outlives the run's deadline, unlike R2's two.
+_ROOM_TOKEN_TTL = 600
 
 # The agent trace collector (cloud-native-ref observability plan, O1): the only place a
 # run's spans may go. It drops every non-metadata attribute before VictoriaTraces.
@@ -190,6 +209,45 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
     _profiles = ["github"] + (_spec.egress?.profiles or [])
     _fqdns = [f for p in _profiles for f in _EGRESS_PROFILES[p]]
     _roomRef = _spec.roomRef
+
+    # The only container that mounts the room-broker token. TLS to the broker on
+    # both clouds (GP-18): the CA is the Secret room-broker-ca in this namespace.
+    _bridge = [{
+        name = "room-bridge"
+        image = _BRIDGE_IMAGE
+        restartPolicy = "Always"
+        # GOMEMLIMIT stays unset: the binary sets the 48 MiB its buffer budget is sized for.
+        env = [
+            {name = "RUN_ID", value = _runId}
+            {name = "ROOM_ID", value = _roomRef}
+            {name = "CONVERSATION_ID", value = _oxr.metadata?.uid or ""}
+            {name = "BROKER_URL", value = "https://{}:8443".format(_BROKER_FQDN)}
+            {name = "BROKER_CA_FILE", value = "/etc/room-broker-ca/ca.crt"}
+            {name = "HARNESS_URL", value = "http://127.0.0.1:{}".format(_profile.port)}
+            {name = "ROOM_TOKEN_FILE", value = "/var/run/secrets/agents/room/token"}
+            {name = "EGRESS_PROFILES", value = ",".join(_profiles)}
+            {name = "FLUSH_GRACE", value = _BRIDGE_FLUSH_GRACE}
+        ]
+        ports = [{name = "bridge-health", containerPort = _BRIDGE_HEALTH_PORT, protocol = "TCP"}]
+        # Process-only until the harness first answers (ruling P6): this startup
+        # probe gates the harness container, so it must never wait for it.
+        startupProbe = {httpGet = {path = "/healthz", port = _BRIDGE_HEALTH_PORT}, periodSeconds = 1, failureThreshold = 30}
+        readinessProbe = {httpGet = {path = "/healthz", port = _BRIDGE_HEALTH_PORT}, periodSeconds = 10}
+        livenessProbe = {httpGet = {path = "/healthz", port = _BRIDGE_HEALTH_PORT}, periodSeconds = 20, failureThreshold = 3}
+        resources = {requests = {cpu = "20m", memory = "32Mi"}, limits = {cpu = "100m", memory = "64Mi"}}
+        securityContext = _CONTAINER_SECURITY
+        volumeMounts = [
+            {name = "room-token", mountPath = "/var/run/secrets/agents/room", readOnly = True}
+            {name = "room-broker-ca", mountPath = "/etc/room-broker-ca", readOnly = True}
+        ]
+    }] if _roomRef else []
+    _roomVolumes = [
+        {name = "room-token", projected = {defaultMode = 288, sources = [{
+            serviceAccountToken = {audience = "room-broker", expirationSeconds = _ROOM_TOKEN_TTL, path = "token"}
+        }]}}
+        {name = "room-broker-ca", secret = {secretName = "room-broker-ca", defaultMode = 288, items = [{key = "ca.crt", path = "ca.crt"}]}}
+    ] if _roomRef else []
+    _bridgeIngress = [{fromEntities = ["host"], toPorts = [{ports = [{port = str(_BRIDGE_HEALTH_PORT), protocol = "TCP"}]}]}] if _roomRef else []
     _ann = _oxr.metadata?.annotations or {}
     _taskLabel = _get(_oxr.metadata?.labels or {}, "agents.ogenki.io/task")
     _sandbox = _observed(_ocds, _name + "-sandbox")
@@ -287,13 +345,13 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
         metadata = _meta("cnp", _name, True, {})
         spec = {
             endpointSelector.matchLabels = {"agents.ogenki.io/run-id" = _runId}
-            # kubelet's probes of the proxy's health listener, nothing else:
-            # the harness is probed by exec, and nothing ever dials into a
-            # sandbox (C4).
+            # kubelet's probes of the proxy's and the bridge's health
+            # listeners, nothing else: the harness is probed by exec, and
+            # nothing ever dials into a sandbox (C4).
             ingress = [{
                 fromEntities = ["host"]
                 toPorts = [{ports = [{port = str(_PROXY_HEALTH_PORT), protocol = "TCP"}]}]
-            }]
+            }] + _bridgeIngress
             egress = [
                 {
                     toEndpoints = [{
@@ -361,7 +419,7 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
                     activeDeadlineSeconds = _maxMinutes * 60
                     enableServiceLinks = False
                     shareProcessNamespace = False
-                    terminationGracePeriodSeconds = 30
+                    terminationGracePeriodSeconds = _ROOM_GRACE_SECONDS if _roomRef else 30
                     dnsConfig = {options = [{name = "ndots", value = "1"}]}
                     securityContext = {
                         runAsNonRoot = True
@@ -395,7 +453,7 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
                             {name = "sts-token", mountPath = "/var/run/secrets/agents/sts", readOnly = True}
                             {name = "proxy-tmp", mountPath = "/tmp"}
                         ]
-                    }]
+                    }] + _bridge
                     containers = [{
                         name = "harness"
                         image = _profile.image
@@ -462,7 +520,7 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
                         {name = "tmp", emptyDir = {sizeLimit = "2Gi"}}
                         # The GitHub token cache lives in memory only (T3).
                         {name = "git-cache", emptyDir = {medium = "Memory", sizeLimit = "1Mi"}}
-                    ]
+                    ] + _roomVolumes
                 }
             }
         }

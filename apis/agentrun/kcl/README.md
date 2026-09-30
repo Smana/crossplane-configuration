@@ -10,6 +10,10 @@ One gVisor-sandboxed coding-agent run (cloud-native-ref Agent Factory, SP1). Ren
 | `CiliumNetworkPolicy` (DNS L7 allowlist, the class's gateway port, octo-sts, the trace collector's POST /v1/traces, FQDN profiles) | — | always |
 | `Sandbox` (`agents.x-k8s.io/v1beta1`, RuntimeClass `gvisor`, identity-proxy native sidecar) | revoked | Sandbox `Ready`, or the phase is terminal |
 
+With `roomRef`: a native sidecar `room-bridge` (SP2) and a `room-token` volume, audience
+`room-broker`, 600 s, mounted by the bridge only, with the Secret `room-broker-ca` for TLS to the
+broker. The run CNP admits kubelet on `8085`.
+
 A `Succeeded` or `Failed` run's Sandbox is rendered `operatingMode: Suspended`: agent-sandbox deletes
 the finished pod and never recreates it. The Sandbox also carries
 `agents.ogenki.io/finished-phase`, so a lost XR status write cannot turn a finished run back into
