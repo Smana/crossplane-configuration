@@ -374,7 +374,7 @@ spec:
           value: github,pypi,golang
         - name: FLUSH_GRACE
           value: 12s
-        image: ghcr.io/smana/room-bridge:v0.0.1-pr5.f3ac98ce@sha256:ec87c76c8413ce6e6f0c6454b419b7cc87d6d0b1946d70ce781ce3e56e6dcf0d
+        image: ghcr.io/smana/room-bridge:v0.0.1-pr6.e335dd32@sha256:814e637c9ad77c3f88779cbefe2f600f0ef8d5a7f954f4bc489f2467f14338d2
         livenessProbe:
           failureThreshold: 3
           httpGet:
