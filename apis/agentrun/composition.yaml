@@ -130,6 +130,15 @@ spec:
               ["python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:{}{}', timeout=2)".format(port, path)]
           }
 
+          # F12: agent-sandbox v1.0.3 re-creates a deleted or evicted pod from the
+          # podTemplate whenever operatingMode is Running (reconcilePod: no owned pod, so
+          # create one), and has no setting that stops it. A task must never run twice,
+          # so once a run has been Running its template carries this scheduling gate. The
+          # controller never re-specs the pod already running, only its metadata, but a
+          # replacement is born gated and never scheduled. The Sandbox mirrors its
+          # PodScheduled=False/SchedulingGated, which ends the run Failed/PodLost.
+          _POD_LOST_GATE = "agents.ogenki.io/pod-lost"
+
           _BUDGET_REASONS = ["budget-run", "budget-principal", "budget-fleet"]
           _REVOKE_REASONS = _BUDGET_REASONS + ["manual"]
           _TERMINAL_PHASES = ["Succeeded", "Failed", "BudgetExhausted", "Revoked"]
@@ -160,18 +169,26 @@ spec:
           # unchanged no matter what the annotations or the observed Sandbox say this
           # reconcile (F2) — so removing an annotation never resurrects a run, and a
           # revoke arriving after completion never regresses a finished one either.
-          _phaseOf = lambda annotations: any, previous: str, sandbox: any -> str {
+          # `lost` (F12) is a replacement pod held by _POD_LOST_GATE.
+          _phaseOf = lambda annotations: any, previous: str, sandbox: any, lost: bool -> str {
               _revoked = _get(annotations, "agents.ogenki.io/revoked") or ""
               _finished = _condition(sandbox, "Finished")
               _ready = _condition(sandbox, "Ready")
-              previous if previous in _TERMINAL_PHASES else "BudgetExhausted" if _revoked in _BUDGET_REASONS else "Revoked" if _revoked == "manual" else "Succeeded" if _finished?.status == "True" and _finished?.reason == "PodSucceeded" else "Failed" if _finished?.status == "True" and _finished?.reason == "PodFailed" else "Running" if _ready?.status == "True" else "Pending"
+              previous if previous in _TERMINAL_PHASES else "BudgetExhausted" if _revoked in _BUDGET_REASONS else "Revoked" if _revoked == "manual" else "Succeeded" if _finished?.status == "True" and _finished?.reason == "PodSucceeded" else "Failed" if _finished?.status == "True" and _finished?.reason == "PodFailed" else "Failed" if lost else "Running" if _ready?.status == "True" else "Pending"
           }
 
           # The reason latches with the phase (F2): once `previousPhase` is terminal,
           # `previousReason` is returned unchanged so a later revoke annotation can't
           # overwrite why a run actually stopped.
-          _reasonOf = lambda phase: str, previousPhase: str, previousReason: any, revoked: any -> any {
-              previousReason if previousPhase in _TERMINAL_PHASES else "PodFailed" if phase == "Failed" else revoked if revoked in _REVOKE_REASONS else None
+          _reasonOf = lambda phase: str, previousPhase: str, previousReason: any, revoked: any, lost: bool -> any {
+              previousReason if previousPhase in _TERMINAL_PHASES else "PodLost" if phase == "Failed" and lost else "PodFailed" if phase == "Failed" else revoked if revoked in _REVOKE_REASONS else None
+          }
+
+          # The Sandbox the composition last applied carries the gate once the run was
+          # Running (F12): like M2's finished-phase annotation, it outlives a lost status write.
+          _gated = lambda sandbox: any -> bool {
+              _gates = sandbox?.spec?.podTemplate?.spec?.schedulingGates or []
+              len([g for g in _gates if g?.name == _POD_LOST_GATE]) > 0
           }
 
           # A malformed annotation is never projected; the last valid value stays. Nor is a
@@ -268,6 +285,7 @@ spec:
                       {name = "room-broker-ca", mountPath = "/etc/room-broker-ca", readOnly = True}
                   ]
               }] if _roomRef else []
+
               _roomVolumes = [
                   {name = "room-token", projected = {defaultMode = 288, sources = [{
                       serviceAccountToken = {audience = "room-broker", expirationSeconds = _ROOM_TOKEN_TTL, path = "token"}
@@ -292,7 +310,15 @@ spec:
               _finishedFor = _get(_sandbox?.metadata?.annotations, "agents.ogenki.io/finished-phase")
               _recovered = _statusPhase not in _TERMINAL_PHASES and _finishedFor in ["Succeeded", "Failed"] and _sandbox?.spec?.operatingMode == "Suspended"
               _prevPhase = _finishedFor if _recovered else _statusPhase
-              _phase = _phaseOf(_ann, _prevPhase, _sandbox)
+
+              # F12: once a run was Running its pod is scheduled for good, so an
+              # unscheduled pod is a replacement: the first was deleted or evicted. Our
+              # gate holds it (SchedulingGated). Before Running, an unscheduled pod is the
+              # first one, waiting for Kueue or for capacity.
+              _started = _prevPhase == "Running" or _gated(_sandbox)
+              _scheduled = _condition(_sandbox, "PodScheduled")
+              _lost = _started and _scheduled?.status == "False"
+              _phase = _phaseOf(_ann, _prevPhase, _sandbox, _lost)
               _revoked = _get(_ann, "agents.ogenki.io/revoked")
               _validRevoke = _revoked in _REVOKE_REASONS
 
@@ -327,7 +353,7 @@ spec:
               # `in`-check is the pattern already proven safe for `_revoked` above.
               # A recovered Failed run had reason PodFailed; a Succeeded one had none.
               _prevReason = ("PodFailed" if _finishedFor == "Failed" else None) if _recovered else _get(_previous, "reason")
-              _reason = _reasonOf(_phase, _prevPhase, _prevReason, _revoked)
+              _reason = _reasonOf(_phase, _prevPhase, _prevReason, _revoked, _lost)
               _labels = {
                   "agents.ogenki.io/run-id" = _runId
                   "agents.ogenki.io/role" = _role
@@ -445,6 +471,8 @@ spec:
                           spec = {
                               serviceAccountName = _name
                               automountServiceAccountToken = False
+                              if _started or _phase == "Running":
+                                  schedulingGates = [{name = _POD_LOST_GATE}]
                               runtimeClassName = "gvisor"
                               restartPolicy = "Never"
                               activeDeadlineSeconds = _maxMinutes * 60
@@ -571,6 +599,9 @@ spec:
                           startedAt = _previous.startedAt
                       if _finished?.lastTransitionTime:
                           finishedAt = _finished.lastTransitionTime
+                      elif _lost and _scheduled?.lastTransitionTime:
+                          # The replacement pod appeared when the first one was lost.
+                          finishedAt = _scheduled.lastTransitionTime
                       elif _previous?.finishedAt:
                           finishedAt = _previous.finishedAt
                       if _reason:
