@@ -66,7 +66,7 @@ _BROKER_FQDN = "room-broker.agent-system.svc.cluster.local"
 # SP2's room bridge (cloud-native-ref SP2 plan, ruling P6): a native sidecar after
 # identity-proxy, rendered only with roomRef, pinned by digest like the harness.
 # Tracks agent-platform PR #9's pre-release; moves to the release tag in the merge wave.
-_BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.0.1-pr9.862d90f5@sha256:6ea823cf7d8f7161ac8e6d41965b463db8e3e0cc10c6e61529918e62b0da0421"
+_BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.0.1-pr9.5bd18d02@sha256:81ecdc3d50c7a7d73b5080d91924c7e33e07facccf394877848819e41f767cb6"
 _BRIDGE_HEALTH_PORT = 8085
 
 # The kubelet signals the bridge only once the harness has exited, so a room
