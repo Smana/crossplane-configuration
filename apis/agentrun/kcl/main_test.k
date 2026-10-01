@@ -747,9 +747,46 @@ test_a_lost_status_write_still_finds_the_lost_pod = lambda {
 test_a_first_pod_gated_by_kueue_is_not_lost = lambda {
     # Kueue's own gate before admission reads SchedulingGated too, but the run never ran.
     _kueue = [{type = "Ready", status = "False"}, {type = "PodScheduled", status = "False", reason = "SchedulingGated"}]
-    _res = _render(_xr({queueName = "agents"}, {}, {}, {}), _appliedSandbox(False, _kueue), _DXR)
+    _first = _render(_xr({queueName = "agents"}, {}, {}, {}), _appliedSandbox(False, _kueue), _DXR)
+    assert _status(_first).phase == "Pending" and "reason" not in _status(_first)
+    assert "schedulingGates" not in _pod(_first)
+    # The next reconcile, once status.phase reads Pending: still not started.
+    _next = _render(_xr({queueName = "agents"}, {}, {}, {phase = "Pending"}), _appliedSandbox(False, _kueue), _DXR)
+    assert _status(_next).phase == "Pending" and "reason" not in _status(_next)
+    assert "schedulingGates" not in _pod(_next)
+}
+
+test_the_gate_lands_once_the_first_pod_is_bound = lambda {
+    _bound = [{type = "Ready", status = "False"}, {type = "PodScheduled", status = "True", reason = "PodScheduled"}]
+    _res = _render(_xr({}, {}, {}, {phase = "Pending"}), _appliedSandbox(False, _bound), _DXR)
     assert _status(_res).phase == "Pending" and "reason" not in _status(_res)
-    assert "schedulingGates" not in _pod(_res)
+    assert _pod(_res).schedulingGates == [{name = "agents.ogenki.io/pod-lost"}], "bound before Ready: a replacement is already gated"
+}
+
+test_a_lost_status_write_keeps_pod_lost = lambda {
+    # M2 for F12: the Sandbox records the reason beside the phase it was suspended for.
+    _res = _render(_xr({}, {}, {}, {phase = "Running"}), _appliedSandbox(True, _HELD), _DXR)
+    _ann = _kind(_res, "Sandbox")[0].metadata.annotations
+    assert _ann["agents.ogenki.io/finished-phase"] == "Failed" and _ann["agents.ogenki.io/finished-reason"] == "PodLost"
+    _sbx = {
+        "xplane-run-7f3cq2xz-sandbox" = {
+            Resource = {
+                metadata = {creationTimestamp = "2026-09-25T10:00:00Z", annotations = {"agents.ogenki.io/finished-phase" = "Failed", "agents.ogenki.io/finished-reason" = "PodLost"}}
+                spec.operatingMode = "Suspended"
+                status.conditions = [{type = "Ready", status = "False", reason = "SandboxSuspended"}]
+            }
+        }
+    }
+    _back = _status(_render(_xr({}, {}, {}, {}), _sbx, _DXR))
+    assert _back.phase == "Failed" and _back.reason == "PodLost"
+    _forged = {
+        "xplane-run-7f3cq2xz-sandbox" = {Resource = _sbx["xplane-run-7f3cq2xz-sandbox"].Resource | {
+            metadata = {
+                annotations = {"agents.ogenki.io/finished-phase" = "Failed", "agents.ogenki.io/finished-reason" = "whatever"}
+            }
+        }}
+    }
+    assert _status(_render(_xr({}, {}, {}, {}), _forged, _DXR)).reason == "PodFailed", "only a reason this composition writes is honoured"
 }
 
 test_a_revocation_still_wins_over_a_lost_pod = lambda {

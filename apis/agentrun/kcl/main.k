@@ -343,8 +343,11 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
     # otherwise-present dict doesn't reliably compare `!= None` in KCL 0.11.3
     # (function-kcl's own dict-mutation gotcha's sibling) — `_get`'s explicit
     # `in`-check is the pattern already proven safe for `_revoked` above.
-    # A recovered Failed run had reason PodFailed; a Succeeded one had none.
-    _prevReason = ("PodFailed" if _finishedFor == "Failed" else None) if _recovered else _get(_previous, "reason")
+    # A recovered Failed run takes its reason from the Sandbox (M2), PodFailed
+    # if the annotation is missing or not one this composition writes; a
+    # Succeeded one had none.
+    _finishedWhy = _get(_sandbox?.metadata?.annotations, "agents.ogenki.io/finished-reason")
+    _prevReason = ((_finishedWhy if _finishedWhy in ["PodFailed", "PodLost"] else "PodFailed") if _finishedFor == "Failed" else None) if _recovered else _get(_previous, "reason")
     _reason = _reasonOf(_phase, _prevPhase, _prevReason, _revoked, _lost)
     _labels = {
         "agents.ogenki.io/run-id" = _runId
@@ -450,7 +453,7 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
     _sandboxResource = [{
         apiVersion = "agents.x-k8s.io/v1beta1"
         kind = "Sandbox"
-        metadata = _meta("sandbox", _name, _sandboxReady, {"agents.ogenki.io/finished-phase" = _phase} if _suspended else {})
+        metadata = _meta("sandbox", _name, _sandboxReady, {"agents.ogenki.io/finished-phase" = _phase, "agents.ogenki.io/finished-reason" = _reason or ""} if _suspended else {})
         spec = {
             # Nothing ever dials into a sandbox (C4).
             service = False
@@ -463,7 +466,10 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
                 spec = {
                     serviceAccountName = _name
                     automountServiceAccountToken = False
-                    if _started or _phase == "Running":
+                    # From the first pod's binding: before it nothing has run, and
+                    # after it any new pod is a replacement. Waiting for Ready would
+                    # leave a window, one XR reconcile long, in which the task runs.
+                    if _started or _phase == "Running" or _scheduled?.status == "True":
                         schedulingGates = [{name = _POD_LOST_GATE}]
                     runtimeClassName = "gvisor"
                     restartPolicy = "Never"
