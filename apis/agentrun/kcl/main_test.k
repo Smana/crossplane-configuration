@@ -577,7 +577,7 @@ test_traceparent_annotation_reaches_the_harness = lambda {
 test_room_bridge_only_with_a_room = lambda {
     assert [c.name for c in _pod(_run({})).initContainers] == ["identity-proxy"]
     _p = _pod(_run({roomRef = "3kq7x2ma"}))
-    assert [c.name for c in _p.initContainers] == ["identity-proxy", "room-bridge"], "the bridge starts after the proxy"
+    assert [c.name for c in _p.initContainers] == ["identity-proxy", "room-bridge", "room-gate"], "the bridge starts after the proxy, and the gate after the bridge"
     _b = _p.initContainers[1]
     assert _b.restartPolicy == "Always", "a native sidecar lets the pod finish when the harness exits"
     assert _b.image.startswith("ghcr.io/smana/room-bridge:") and "@sha256:" in _b.image, "pinned by digest"
@@ -688,6 +688,23 @@ test_the_harness_is_the_footer_build = lambda {
     _image = _pod(_run({})).containers[0].image
     assert _image.startswith("ghcr.io/smana/agent-harness:v0.2.0"), "H-S3's harness (SP2 design §5)"
     assert "@sha256:" in _image, "pinned by digest"
+}
+
+# ---- F15: the harness starts only once the bridge holds the room ----
+test_the_gate_holds_the_harness_until_the_bridge_holds_the_room = lambda {
+    _p = _pod(_run({roomRef = "3kq7x2ma"}))
+    _g = _p.initContainers[2]
+    _b = _p.initContainers[1]
+    assert _g.name == "room-gate" and "restartPolicy" not in _g, "a plain init container: the harness waits for it to exit 0"
+    assert _g.image == _b.image, "the bridge's own binary"
+    assert _g.args == ["gate"]
+    assert _p.restartPolicy == "Never", "a refusal fails the pod rather than retrying the gate"
+    assert "volumeMounts" not in _g and "env" not in _g, "it holds no token and reads the bridge's default :8085"
+    assert _g.terminationMessagePolicy == "FallbackToLogsOnError", "the refusal reason surfaces in the pod status"
+    assert _g.resources == {requests = {cpu = "10m", memory = "16Mi"}, limits = {cpu = "50m", memory = "32Mi"}}
+    assert _g.securityContext.readOnlyRootFilesystem == True and _g.securityContext.capabilities.drop == ["ALL"]
+    assert _g.securityContext.runAsNonRoot == True and _g.securityContext.allowPrivilegeEscalation == False
+    assert [c.name for c in _pod(_run({})).initContainers] == ["identity-proxy"], "no room, no gate"
 }
 
 # ---- F12: a lost pod ends the run; it is never re-created to run the task again ----

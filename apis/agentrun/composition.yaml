@@ -29,7 +29,7 @@ spec:
           #                        collector, FQDN profiles
           #   Sandbox              agents.x-k8s.io/v1beta1 under gVisor (not when revoked;
           #                        Suspended once Succeeded/Failed); with roomRef, the
-          #                        room-bridge sidecar (SP2)
+          #                        room-bridge sidecar and its gate (SP2)
           # and patches the XR status.
           #
           # Status has ONE writer, this composition (C3). Controllers write annotations;
@@ -87,7 +87,7 @@ spec:
           # SP2's room bridge (cloud-native-ref SP2 plan, ruling P6): a native sidecar after
           # identity-proxy, rendered only with roomRef, pinned by digest like the harness.
           # Tracks agent-platform PR #9's pre-release; moves to the release tag in the merge wave.
-          _BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.0.1-pr9.74bf067d@sha256:f4dc257e21bf1f726b564ed28d6611eea24441cbfa8779eb89556b8f8fcf8d04"
+          _BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.0.1-pr9.862d90f5@sha256:6ea823cf7d8f7161ac8e6d41965b463db8e3e0cc10c6e61529918e62b0da0421"
           _BRIDGE_HEALTH_PORT = 8085
 
           # The kubelet signals the bridge only once the harness has exited, so a room
@@ -286,6 +286,19 @@ spec:
                   ]
               }] if _roomRef else []
 
+              # F15: the bridge's lease holds the log; this holds the work. A plain init
+              # container after the bridge, so the harness starts only once the bridge
+              # holds the room. A refusal (room_busy for 3 min, or sealed) exits 1, and
+              # restartPolicy Never fails the pod before the harness runs. Init containers
+              # take no probes.
+              _gate = [{
+                  name = "room-gate"
+                  image = _BRIDGE_IMAGE
+                  args = ["gate"]
+                  resources = {requests = {cpu = "10m", memory = "16Mi"}, limits = {cpu = "50m", memory = "32Mi"}}
+                  securityContext = _CONTAINER_SECURITY
+                  terminationMessagePolicy = "FallbackToLogsOnError"
+              }] if _roomRef else []
               _roomVolumes = [
                   {name = "room-token", projected = {defaultMode = 288, sources = [{
                       serviceAccountToken = {audience = "room-broker", expirationSeconds = _ROOM_TOKEN_TTL, path = "token"}
@@ -512,7 +525,7 @@ spec:
                                       {name = "sts-token", mountPath = "/var/run/secrets/agents/sts", readOnly = True}
                                       {name = "proxy-tmp", mountPath = "/tmp"}
                                   ]
-                              }] + _bridge
+                              }] + _bridge + _gate
                               containers = [{
                                   name = "harness"
                                   image = _profile.image
