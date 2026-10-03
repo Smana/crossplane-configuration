@@ -79,6 +79,22 @@ _runningSandboxWithStaleAnnotation = lambda finishedFor: str -> any {
     }
 }
 
+# A Sandbox as the composition last applied it, gated or not, with conditions.
+_appliedSandbox = lambda gated: bool, conditions: [any] -> any {
+    {
+        "xplane-run-7f3cq2xz-sandbox" = {
+            Resource = {
+                metadata = {creationTimestamp = "2026-09-25T10:00:00Z"}
+                spec = {operatingMode = "Running", podTemplate.spec.schedulingGates = [{name = "agents.ogenki.io/pod-lost"}] if gated else []}
+                status.conditions = conditions
+            }
+        }
+    }
+}
+
+# agent-sandbox's view of a replacement pod held by the pod-lost gate (F12).
+_HELD = [{type = "Ready", status = "False", reason = "DependenciesNotReady"}, {type = "PodScheduled", status = "False", reason = "SchedulingGated", lastTransitionTime = "2026-09-25T10:40:57Z"}]
+
 _phaseFor = lambda annotations: any, status: any, observed: any -> str {
     _status(_render(_xr({}, annotations, {}, status), observed, _DXR)).phase
 }
@@ -561,7 +577,7 @@ test_traceparent_annotation_reaches_the_harness = lambda {
 test_room_bridge_only_with_a_room = lambda {
     assert [c.name for c in _pod(_run({})).initContainers] == ["identity-proxy"]
     _p = _pod(_run({roomRef = "3kq7x2ma"}))
-    assert [c.name for c in _p.initContainers] == ["identity-proxy", "room-bridge"], "the bridge starts after the proxy"
+    assert [c.name for c in _p.initContainers] == ["identity-proxy", "room-bridge", "room-gate"], "the bridge starts after the proxy, and the gate after the bridge"
     _b = _p.initContainers[1]
     assert _b.restartPolicy == "Always", "a native sidecar lets the pod finish when the harness exits"
     assert _b.image.startswith("ghcr.io/smana/room-bridge:") and "@sha256:" in _b.image, "pinned by digest"
@@ -597,7 +613,8 @@ test_only_the_bridge_mounts_the_room_token = lambda {
     _ca = [v for v in _p.volumes if v.name == "room-broker-ca"][0]
     assert _ca == {name = "room-broker-ca", secret = {secretName = "room-broker-ca", defaultMode = 288, items = [{key = "ca.crt", path = "ca.crt"}]}}
     _all = _p.initContainers + _p.containers
-    assert [c.name for c in _all if any m in c.volumeMounts {m.name in ["room-token", "room-broker-ca"]}] == ["room-bridge"]
+    _mounting = [c.name for c in _all if "volumeMounts" in c and any m in c.volumeMounts {m.name in ["room-token", "room-broker-ca"]}]
+    assert _mounting == ["room-bridge"]
     _bridgeMounts = _p.initContainers[1].volumeMounts
     assert {m.name: m.mountPath for m in _bridgeMounts} == {"room-token" = "/var/run/secrets/agents/room", "room-broker-ca" = "/etc/room-broker-ca"}
     assert all m in _bridgeMounts {
@@ -671,4 +688,114 @@ test_the_harness_is_the_footer_build = lambda {
     _image = _pod(_run({})).containers[0].image
     assert _image.startswith("ghcr.io/smana/agent-harness:v0.2.0"), "H-S3's harness (SP2 design §5)"
     assert "@sha256:" in _image, "pinned by digest"
+}
+
+# ---- F15: the harness starts only once the bridge holds the room ----
+test_the_gate_holds_the_harness_until_the_bridge_holds_the_room = lambda {
+    _p = _pod(_run({roomRef = "3kq7x2ma"}))
+    _g = _p.initContainers[2]
+    _b = _p.initContainers[1]
+    assert _g.name == "room-gate" and "restartPolicy" not in _g, "a plain init container: the harness waits for it to exit 0"
+    assert _g.image == _b.image, "the bridge's own binary"
+    assert _g.args == ["gate"]
+    assert _p.restartPolicy == "Never", "a refusal fails the pod rather than retrying the gate"
+    assert "volumeMounts" not in _g and "env" not in _g, "it holds no token and reads the bridge's default :8085"
+    assert _g.terminationMessagePolicy == "FallbackToLogsOnError", "the refusal reason surfaces in the pod status"
+    assert _g.resources == {requests = {cpu = "10m", memory = "16Mi"}, limits = {cpu = "50m", memory = "32Mi"}}
+    assert _g.securityContext.readOnlyRootFilesystem == True and _g.securityContext.capabilities.drop == ["ALL"]
+    assert _g.securityContext.runAsNonRoot == True and _g.securityContext.allowPrivilegeEscalation == False
+    assert [c.name for c in _pod(_run({})).initContainers] == ["identity-proxy"], "no room, no gate"
+}
+
+# ---- F12: a lost pod ends the run; it is never re-created to run the task again ----
+test_a_pending_run_has_no_pod_lost_gate = lambda {
+    assert "schedulingGates" not in _pod(_run({})), "the first pod must schedule"
+    assert "schedulingGates" not in _pod(_render(_xr({}, {}, {}, {}), _appliedSandbox(False, [{type = "Ready", status = "False"}]), _DXR))
+}
+
+test_a_running_run_gates_any_replacement_pod = lambda {
+    _res = _render(_xr({}, {}, {}, {}), _appliedSandbox(False, [{type = "Ready", status = "True"}]), _DXR)
+    assert _status(_res).phase == "Running"
+    assert _pod(_res).schedulingGates == [{name = "agents.ogenki.io/pod-lost"}]
+    # A readiness flap is not a lost pod: the gate stays, the run is not failed.
+    _flap = _render(_xr({}, {}, {}, {phase = "Running"}), _appliedSandbox(True, [{type = "Ready", status = "False"}, {type = "PodScheduled", status = "True", reason = "PodScheduled"}]), _DXR)
+    assert _status(_flap).phase == "Pending"
+    assert _pod(_flap).schedulingGates == [{name = "agents.ogenki.io/pod-lost"}], "the gate never comes off once Running"
+}
+
+test_a_replacement_pod_ends_the_run_pod_lost = lambda {
+    _res = _render(_xr({}, {}, {}, {phase = "Running", startedAt = "2026-09-25T10:00:00Z"}), _appliedSandbox(True, _HELD), _DXR)
+    _st = _status(_res)
+    assert _st.phase == "Failed" and _st.reason == "PodLost"
+    assert _st.finishedAt == "2026-09-25T10:40:57Z", "when the replacement appeared"
+    _sbx = _kind(_res, "Sandbox")[0]
+    assert _sbx.spec.operatingMode == "Suspended", "the gated replacement is deleted, never scheduled"
+    assert "ServiceAccount" not in [r.kind for r in _res], "and could not start anyway"
+    _later = _render(_xr({}, {}, {}, _st), _suspendedSandbox("Failed"), _DXR)
+    assert _status(_later).phase == "Failed" and _status(_later).reason == "PodLost", "it latches"
+}
+
+test_a_lost_status_write_still_finds_the_lost_pod = lambda {
+    # The Running status write was lost, or the gap between the two pods read Pending:
+    # the gate on the applied Sandbox remembers the run was Running.
+    _res = _render(_xr({}, {}, {}, {phase = "Pending"}), _appliedSandbox(True, _HELD), _DXR)
+    assert _status(_res).phase == "Failed" and _status(_res).reason == "PodLost"
+    _gap = _render(_xr({}, {}, {}, {phase = "Running"}), _appliedSandbox(True, [{type = "Ready", status = "False", reason = "DependenciesNotReady"}]), _DXR)
+    assert _status(_gap).phase == "Pending" and _pod(_gap).schedulingGates == [{name = "agents.ogenki.io/pod-lost"}], "between the pods: wait, gated"
+}
+
+test_a_first_pod_gated_by_kueue_is_not_lost = lambda {
+    # Kueue's own gate before admission reads SchedulingGated too, but the run never ran.
+    _kueue = [{type = "Ready", status = "False"}, {type = "PodScheduled", status = "False", reason = "SchedulingGated"}]
+    _first = _render(_xr({queueName = "agents"}, {}, {}, {}), _appliedSandbox(False, _kueue), _DXR)
+    assert _status(_first).phase == "Pending" and "reason" not in _status(_first)
+    assert "schedulingGates" not in _pod(_first)
+    # The next reconcile, once status.phase reads Pending: still not started.
+    _next = _render(_xr({queueName = "agents"}, {}, {}, {phase = "Pending"}), _appliedSandbox(False, _kueue), _DXR)
+    assert _status(_next).phase == "Pending" and "reason" not in _status(_next)
+    assert "schedulingGates" not in _pod(_next)
+}
+
+test_the_gate_lands_once_the_first_pod_is_bound = lambda {
+    _bound = [{type = "Ready", status = "False"}, {type = "PodScheduled", status = "True", reason = "PodScheduled"}]
+    _res = _render(_xr({}, {}, {}, {phase = "Pending"}), _appliedSandbox(False, _bound), _DXR)
+    assert _status(_res).phase == "Pending" and "reason" not in _status(_res)
+    assert _pod(_res).schedulingGates == [{name = "agents.ogenki.io/pod-lost"}], "bound before Ready: a replacement is already gated"
+}
+
+test_a_lost_status_write_keeps_pod_lost = lambda {
+    # M2 for F12: the Sandbox records the reason beside the phase it was suspended for.
+    _res = _render(_xr({}, {}, {}, {phase = "Running"}), _appliedSandbox(True, _HELD), _DXR)
+    _ann = _kind(_res, "Sandbox")[0].metadata.annotations
+    assert _ann["agents.ogenki.io/finished-phase"] == "Failed" and _ann["agents.ogenki.io/finished-reason"] == "PodLost"
+    _sbx = {
+        "xplane-run-7f3cq2xz-sandbox" = {
+            Resource = {
+                metadata = {creationTimestamp = "2026-09-25T10:00:00Z", annotations = {"agents.ogenki.io/finished-phase" = "Failed", "agents.ogenki.io/finished-reason" = "PodLost"}}
+                spec.operatingMode = "Suspended"
+                status.conditions = [{type = "Ready", status = "False", reason = "SandboxSuspended"}]
+            }
+        }
+    }
+    _back = _status(_render(_xr({}, {}, {}, {}), _sbx, _DXR))
+    assert _back.phase == "Failed" and _back.reason == "PodLost"
+    _forged = {
+        "xplane-run-7f3cq2xz-sandbox" = {Resource = _sbx["xplane-run-7f3cq2xz-sandbox"].Resource | {
+            metadata = {
+                annotations = {"agents.ogenki.io/finished-phase" = "Failed", "agents.ogenki.io/finished-reason" = "whatever"}
+            }
+        }}
+    }
+    assert _status(_render(_xr({}, {}, {}, {}), _forged, _DXR)).reason == "PodFailed", "only a reason this composition writes is honoured"
+}
+
+test_a_revocation_still_wins_over_a_lost_pod = lambda {
+    _res = _render(_xr({}, {"agents.ogenki.io/revoked" = "manual"}, {}, {phase = "Running"}), _appliedSandbox(True, _HELD), _DXR)
+    assert _status(_res).phase == "Revoked" and _status(_res).reason == "manual"
+}
+
+test_a_finished_pod_is_not_lost = lambda {
+    _done = _HELD + [{type = "Finished", status = "True", reason = "PodSucceeded", lastTransitionTime = "2026-09-25T10:30:00Z"}]
+    _res = _render(_xr({}, {}, {}, {phase = "Running"}), _appliedSandbox(True, _done), _DXR)
+    assert _status(_res).phase == "Succeeded" and "reason" not in _status(_res)
 }

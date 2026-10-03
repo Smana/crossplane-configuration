@@ -380,7 +380,7 @@ spec:
           value: github,pypi,golang
         - name: FLUSH_GRACE
           value: 12s
-        image: ghcr.io/smana/room-bridge:v0.0.1-pr6.e335dd32@sha256:814e637c9ad77c3f88779cbefe2f600f0ef8d5a7f954f4bc489f2467f14338d2
+        image: ghcr.io/smana/room-bridge:v0.0.1-pr11.eb61ce7c@sha256:c01442cc5ec3dc0ed9117aff55a7709af2c2585c5f7e72c6078be7fa1f05fa73
         livenessProbe:
           failureThreshold: 3
           httpGet:
@@ -427,6 +427,27 @@ spec:
         - mountPath: /etc/room-broker-ca
           name: room-broker-ca
           readOnly: true
+      - args:
+        - gate
+        image: ghcr.io/smana/room-bridge:v0.0.1-pr11.eb61ce7c@sha256:c01442cc5ec3dc0ed9117aff55a7709af2c2585c5f7e72c6078be7fa1f05fa73
+        name: room-gate
+        resources:
+          limits:
+            cpu: 50m
+            memory: 32Mi
+          requests:
+            cpu: 10m
+            memory: 16Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        terminationMessagePolicy: FallbackToLogsOnError
       restartPolicy: Never
       runtimeClassName: gvisor
       securityContext:

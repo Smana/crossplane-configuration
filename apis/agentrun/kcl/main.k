@@ -8,7 +8,7 @@
 #                        collector, FQDN profiles
 #   Sandbox              agents.x-k8s.io/v1beta1 under gVisor (not when revoked;
 #                        Suspended once Succeeded/Failed); with roomRef, the
-#                        room-bridge sidecar (SP2)
+#                        room-bridge sidecar and its gate (SP2)
 # and patches the XR status.
 #
 # Status has ONE writer, this composition (C3). Controllers write annotations;
@@ -65,8 +65,8 @@ _BROKER_FQDN = "room-broker.agent-system.svc.cluster.local"
 
 # SP2's room bridge (cloud-native-ref SP2 plan, ruling P6): a native sidecar after
 # identity-proxy, rendered only with roomRef, pinned by digest like the harness.
-# Tracks agent-platform PR #6's pre-release; moves to the release tag in the merge wave.
-_BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.0.1-pr6.e335dd32@sha256:814e637c9ad77c3f88779cbefe2f600f0ef8d5a7f954f4bc489f2467f14338d2"
+# Tracks agent-platform PR #9's pre-release; moves to the release tag in the merge wave.
+_BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.0.1-pr11.eb61ce7c@sha256:c01442cc5ec3dc0ed9117aff55a7709af2c2585c5f7e72c6078be7fa1f05fa73"
 _BRIDGE_HEALTH_PORT = 8085
 
 # The kubelet signals the bridge only once the harness has exited, so a room
@@ -109,6 +109,15 @@ _localGet = lambda port: int, path: str -> [str] {
     ["python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:{}{}', timeout=2)".format(port, path)]
 }
 
+# F12: agent-sandbox v1.0.3 re-creates a deleted or evicted pod from the
+# podTemplate whenever operatingMode is Running (reconcilePod: no owned pod, so
+# create one), and has no setting that stops it. A task must never run twice,
+# so once a run has been Running its template carries this scheduling gate. The
+# controller never re-specs the pod already running, only its metadata, but a
+# replacement is born gated and never scheduled. The Sandbox mirrors its
+# PodScheduled=False/SchedulingGated, which ends the run Failed/PodLost.
+_POD_LOST_GATE = "agents.ogenki.io/pod-lost"
+
 _BUDGET_REASONS = ["budget-run", "budget-principal", "budget-fleet"]
 _REVOKE_REASONS = _BUDGET_REASONS + ["manual"]
 _TERMINAL_PHASES = ["Succeeded", "Failed", "BudgetExhausted", "Revoked"]
@@ -139,18 +148,26 @@ _observed = lambda state: any, key: str -> any {
 # unchanged no matter what the annotations or the observed Sandbox say this
 # reconcile (F2) — so removing an annotation never resurrects a run, and a
 # revoke arriving after completion never regresses a finished one either.
-_phaseOf = lambda annotations: any, previous: str, sandbox: any -> str {
+# `lost` (F12) is a replacement pod held by _POD_LOST_GATE.
+_phaseOf = lambda annotations: any, previous: str, sandbox: any, lost: bool -> str {
     _revoked = _get(annotations, "agents.ogenki.io/revoked") or ""
     _finished = _condition(sandbox, "Finished")
     _ready = _condition(sandbox, "Ready")
-    previous if previous in _TERMINAL_PHASES else "BudgetExhausted" if _revoked in _BUDGET_REASONS else "Revoked" if _revoked == "manual" else "Succeeded" if _finished?.status == "True" and _finished?.reason == "PodSucceeded" else "Failed" if _finished?.status == "True" and _finished?.reason == "PodFailed" else "Running" if _ready?.status == "True" else "Pending"
+    previous if previous in _TERMINAL_PHASES else "BudgetExhausted" if _revoked in _BUDGET_REASONS else "Revoked" if _revoked == "manual" else "Succeeded" if _finished?.status == "True" and _finished?.reason == "PodSucceeded" else "Failed" if _finished?.status == "True" and _finished?.reason == "PodFailed" else "Failed" if lost else "Running" if _ready?.status == "True" else "Pending"
 }
 
 # The reason latches with the phase (F2): once `previousPhase` is terminal,
 # `previousReason` is returned unchanged so a later revoke annotation can't
 # overwrite why a run actually stopped.
-_reasonOf = lambda phase: str, previousPhase: str, previousReason: any, revoked: any -> any {
-    previousReason if previousPhase in _TERMINAL_PHASES else "PodFailed" if phase == "Failed" else revoked if revoked in _REVOKE_REASONS else None
+_reasonOf = lambda phase: str, previousPhase: str, previousReason: any, revoked: any, lost: bool -> any {
+    previousReason if previousPhase in _TERMINAL_PHASES else "PodLost" if phase == "Failed" and lost else "PodFailed" if phase == "Failed" else revoked if revoked in _REVOKE_REASONS else None
+}
+
+# The Sandbox the composition last applied carries the gate once the run was
+# Running (F12): like M2's finished-phase annotation, it outlives a lost status write.
+_gated = lambda sandbox: any -> bool {
+    _gates = sandbox?.spec?.podTemplate?.spec?.schedulingGates or []
+    len([g for g in _gates if g?.name == _POD_LOST_GATE]) > 0
 }
 
 # A malformed annotation is never projected; the last valid value stays. Nor is a
@@ -247,6 +264,20 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
             {name = "room-broker-ca", mountPath = "/etc/room-broker-ca", readOnly = True}
         ]
     }] if _roomRef else []
+
+    # F15: the bridge's lease holds the log; this holds the work. A plain init
+    # container after the bridge, so the harness starts only once the bridge
+    # holds the room. A refusal (room_busy for 3 min, or sealed) exits 1, and
+    # restartPolicy Never fails the pod before the harness runs. Init containers
+    # take no probes.
+    _gate = [{
+        name = "room-gate"
+        image = _BRIDGE_IMAGE
+        args = ["gate"]
+        resources = {requests = {cpu = "10m", memory = "16Mi"}, limits = {cpu = "50m", memory = "32Mi"}}
+        securityContext = _CONTAINER_SECURITY
+        terminationMessagePolicy = "FallbackToLogsOnError"
+    }] if _roomRef else []
     _roomVolumes = [
         {name = "room-token", projected = {defaultMode = 288, sources = [{
             serviceAccountToken = {audience = "room-broker", expirationSeconds = _ROOM_TOKEN_TTL, path = "token"}
@@ -271,7 +302,15 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
     _finishedFor = _get(_sandbox?.metadata?.annotations, "agents.ogenki.io/finished-phase")
     _recovered = _statusPhase not in _TERMINAL_PHASES and _finishedFor in ["Succeeded", "Failed"] and _sandbox?.spec?.operatingMode == "Suspended"
     _prevPhase = _finishedFor if _recovered else _statusPhase
-    _phase = _phaseOf(_ann, _prevPhase, _sandbox)
+
+    # F12: once a run was Running its pod is scheduled for good, so an
+    # unscheduled pod is a replacement: the first was deleted or evicted. Our
+    # gate holds it (SchedulingGated). Before Running, an unscheduled pod is the
+    # first one, waiting for Kueue or for capacity.
+    _started = _prevPhase == "Running" or _gated(_sandbox)
+    _scheduled = _condition(_sandbox, "PodScheduled")
+    _lost = _started and _scheduled?.status == "False"
+    _phase = _phaseOf(_ann, _prevPhase, _sandbox, _lost)
     _revoked = _get(_ann, "agents.ogenki.io/revoked")
     _validRevoke = _revoked in _REVOKE_REASONS
 
@@ -304,9 +343,12 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
     # otherwise-present dict doesn't reliably compare `!= None` in KCL 0.11.3
     # (function-kcl's own dict-mutation gotcha's sibling) — `_get`'s explicit
     # `in`-check is the pattern already proven safe for `_revoked` above.
-    # A recovered Failed run had reason PodFailed; a Succeeded one had none.
-    _prevReason = ("PodFailed" if _finishedFor == "Failed" else None) if _recovered else _get(_previous, "reason")
-    _reason = _reasonOf(_phase, _prevPhase, _prevReason, _revoked)
+    # A recovered Failed run takes its reason from the Sandbox (M2), PodFailed
+    # if the annotation is missing or not one this composition writes; a
+    # Succeeded one had none.
+    _finishedWhy = _get(_sandbox?.metadata?.annotations, "agents.ogenki.io/finished-reason")
+    _prevReason = ((_finishedWhy if _finishedWhy in ["PodFailed", "PodLost"] else "PodFailed") if _finishedFor == "Failed" else None) if _recovered else _get(_previous, "reason")
+    _reason = _reasonOf(_phase, _prevPhase, _prevReason, _revoked, _lost)
     _labels = {
         "agents.ogenki.io/run-id" = _runId
         "agents.ogenki.io/role" = _role
@@ -411,7 +453,7 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
     _sandboxResource = [{
         apiVersion = "agents.x-k8s.io/v1beta1"
         kind = "Sandbox"
-        metadata = _meta("sandbox", _name, _sandboxReady, {"agents.ogenki.io/finished-phase" = _phase} if _suspended else {})
+        metadata = _meta("sandbox", _name, _sandboxReady, {"agents.ogenki.io/finished-phase" = _phase, "agents.ogenki.io/finished-reason" = _reason or ""} if _suspended else {})
         spec = {
             # Nothing ever dials into a sandbox (C4).
             service = False
@@ -424,6 +466,11 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
                 spec = {
                     serviceAccountName = _name
                     automountServiceAccountToken = False
+                    # From the first pod's binding: before it nothing has run, and
+                    # after it any new pod is a replacement. Waiting for Ready would
+                    # leave a window, one XR reconcile long, in which the task runs.
+                    if _started or _phase == "Running" or _scheduled?.status == "True":
+                        schedulingGates = [{name = _POD_LOST_GATE}]
                     runtimeClassName = "gvisor"
                     restartPolicy = "Never"
                     activeDeadlineSeconds = _maxMinutes * 60
@@ -463,7 +510,7 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
                             {name = "sts-token", mountPath = "/var/run/secrets/agents/sts", readOnly = True}
                             {name = "proxy-tmp", mountPath = "/tmp"}
                         ]
-                    }] + _bridge
+                    }] + _bridge + _gate
                     containers = [{
                         name = "harness"
                         image = _profile.image
@@ -550,6 +597,9 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
                 startedAt = _previous.startedAt
             if _finished?.lastTransitionTime:
                 finishedAt = _finished.lastTransitionTime
+            elif _lost and _scheduled?.lastTransitionTime:
+                # The replacement pod appeared when the first one was lost.
+                finishedAt = _scheduled.lastTransitionTime
             elif _previous?.finishedAt:
                 finishedAt = _previous.finishedAt
             if _reason:
