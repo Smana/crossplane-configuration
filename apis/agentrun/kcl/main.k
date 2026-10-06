@@ -34,10 +34,6 @@ _HARNESS_PROFILES = {
         # 127.0.0.1:8000 itself. Its API is unauthenticated, so it stays off the
         # pod network, and the probes run inside the container (_localGet).
         args = []
-        # A deleted run revokes its GitHub token at once instead of leaving it
-        # live until it expires (SC-07). The Usage below keeps the CNP's
-        # api.github.com egress open until this has run.
-        preStop = ["/usr/local/bin/git-credential-agent", "revoke"]
     }
 }
 
@@ -65,15 +61,16 @@ _BROKER_FQDN = "room-broker.agent-system.svc.cluster.local"
 
 # SP2's room bridge (cloud-native-ref SP2 plan, ruling P6): a native sidecar after
 # identity-proxy, rendered only with roomRef, pinned by digest like the harness.
-# Pinned to agent-platform PR #22, an integration build that is never merged (the
-# factory stack, room approvals, #20 and #21); moves to the release tag in the merge wave.
-_BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.0.1-pr22.fe9655d9@sha256:04b339e2e95ebc078f268955a0fa1eedac84f0f327155d0ae1d0be120c3a60aa"
+# Tracks agent-platform PR #24's pre-release (the final read, disruption design §2); moves to the
+# release tag in the merge wave.
+_BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.0.1-pr24.465a2747@sha256:d4edc16947539a65ed5abaab03a79daec359f1f54e8c69373194fb99f939959c"
 _BRIDGE_HEALTH_PORT = 8085
 
 # The kubelet signals the bridge only once the harness has exited, so a room
-# run's grace covers, in order: the preStop revoke (a 10 s urlopen, ~12 s under
-# gVisor), agent-run's SIGTERM cleanup (server.wait(10) and a second revoke,
-# ~11 s), this flush (12 s) and the bridge's health drain (2 s): 37 s of 45.
+# run's grace covers, in order: agent-run's shutdown sequence (at most 15 s,
+# disruption design §2), this flush (12 s) and the bridge's health drain (2 s):
+# 29 s of 45. A node shutdown caps the pod at the node's window (15 s on a GKE
+# preemptible VM), which agent-run's final read is for.
 _BRIDGE_FLUSH_GRACE = "12s"
 _ROOM_GRACE_SECONDS = 45
 
@@ -386,6 +383,8 @@ _renderRun = lambda _oxr: any, _ocds: any, _dxr: any, _pods: any -> [any] {
     # The inputs of the harness's PR footer (H-S3), each only when the run has it:
     # provenance hints, never authorisation (ruling TB).
     _footerEnv = ([{name = "ROOM_ID", value = _roomRef}] if _roomRef else []) + ([{name = "TASK_ID", value = _taskLabel}] if _taskLabel else []) + ([{name = "TASK_URL", value = _spec.task.url}] if _spec.task?.url else [])
+    # agent-run's final read on SIGTERM (disruption design §2): the bridge's health port, on loopback.
+    _bridgeEnv = [{name = "BRIDGE_URL", value = "http://127.0.0.1:{}".format(_BRIDGE_HEALTH_PORT)}] if _roomRef else []
 
     # `_get`, not `_previous?.reason`: a single-level `?.` miss on an
     # otherwise-present dict doesn't reliably compare `!= None` in KCL 0.11.3
@@ -587,7 +586,7 @@ _renderRun = lambda _oxr: any, _ocds: any, _dxr: any, _pods: any -> [any] {
                             # honours LMNR_TRACE_CONTENT and injects traceparent; lmnr's LiteLLM one does neither.
                             {name = "LMNR_INSTRUMENTS", value = "openai"}
                             {name = "LMNR_TRACE_CONTENT", value = "false"}
-                        ] + ([{name = "TRACEPARENT", value = _tp}] if _tp else []) + _footerEnv
+                        ] + ([{name = "TRACEPARENT", value = _tp}] if _tp else []) + _footerEnv + _bridgeEnv
                         # No containerPort: agent-server listens on loopback only.
                         # timeoutSeconds covers python3's start-up under gVisor
                         # plus urlopen's own 2 s; kubelet's 1 s default would
@@ -595,8 +594,6 @@ _renderRun = lambda _oxr: any, _ocds: any, _dxr: any, _pods: any -> [any] {
                         startupProbe = {exec.command = _localGet(_profile.port, "/ready"), periodSeconds = 5, failureThreshold = 60, timeoutSeconds = 5}
                         readinessProbe = {exec.command = _localGet(_profile.port, "/ready"), periodSeconds = 10, timeoutSeconds = 5}
                         livenessProbe = {exec.command = _localGet(_profile.port, "/health"), periodSeconds = 20, failureThreshold = 3, timeoutSeconds = 5}
-                        if _profile?.preStop:
-                            lifecycle.preStop.exec.command = _profile.preStop
                         resources = {
                             requests = {cpu = _size.cpu[0], memory = _size.memory[0], "ephemeral-storage" = "1Gi"}
                             limits = {cpu = _size.cpu[1], memory = _size.memory[1], "ephemeral-storage" = _size.scratch}
@@ -659,12 +656,12 @@ _renderRun = lambda _oxr: any, _ocds: any, _dxr: any, _pods: any -> [any] {
         }
     }]
 
-    # The preStop revokes the GitHub token through api.github.com, and Crossplane
-    # deletes composed resources in parallel: the CNP could go first and strand the
-    # token for up to an hour. The Usage holds the CNP until the pod is gone, then
+    # agent-run revokes the GitHub token through api.github.com on its way out (disruption
+    # design §2), and Crossplane deletes composed resources in parallel: the CNP could go first and
+    # strand the token for up to an hour. The Usage holds the CNP until the pod is gone, then
     # replays its deletion. It is keyed on the Pod, not the Sandbox: a Sandbox has
-    # no finalizer and leaves the API while its pod still runs preStop and the
-    # SIGTERM cleanup, and the CNP went with it (seen live, 2026-09-27). Crossplane
+    # no finalizer and leaves the API while its pod still runs the SIGTERM cleanup,
+    # and the CNP went with it (seen live, 2026-09-27). Crossplane
     # reads the Pod with a plain GET, so it needs `get pods` in the run's namespace.
     _cnpUsage = [{
         apiVersion = "protection.crossplane.io/v1beta1"

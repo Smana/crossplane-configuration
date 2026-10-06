@@ -454,7 +454,7 @@ test_harness_profile_is_the_platform_image = lambda {
     assert _c.image.startswith("ghcr.io/smana/agent-harness:"), "the openhands profile is the repo-built harness (S7)"
     assert "@sha256:" in _c.image, "pinned by digest"
     assert _c.args == [], "agent-run starts agent-server on 127.0.0.1:8000 itself"
-    assert _c.lifecycle.preStop.exec.command == ["/usr/local/bin/git-credential-agent", "revoke"], "a deleted run revokes its GitHub token (SC-07)"
+    assert "lifecycle" not in _c, "no preStop: agent-run revokes the token after its checkpoint push (disruption design §2)"
 }
 
 # ---- M6: agent-server stays on loopback, probed from inside the container ----
@@ -589,12 +589,11 @@ test_room_bridge_only_with_a_room = lambda {
     assert _env.HARNESS_URL == "http://127.0.0.1:8000" and _env.ROOM_TOKEN_FILE == "/var/run/secrets/agents/room/token"
     assert _env.EGRESS_PROFILES == "github"
 
-    # The kubelet signals the bridge only after the harness exits: its preStop revoke,
-    # then agent-run's SIGTERM cleanup (server.wait(10) and a second revoke), come first.
-    _preStop = 12
-    _harnessCleanup = 11
+    # The kubelet signals the bridge only after the harness exits: agent-run's shutdown sequence,
+    # at most 15 s (disruption design §2), comes first. There is no preStop.
+    _harnessShutdown = 15
     _healthDrain = 2
-    assert _preStop + _harnessCleanup + int(_env.FLUSH_GRACE.removesuffix("s")) + _healthDrain <= _p.terminationGracePeriodSeconds
+    assert _harnessShutdown + int(_env.FLUSH_GRACE.removesuffix("s")) + _healthDrain <= _p.terminationGracePeriodSeconds
     assert _pod(_run({})).terminationGracePeriodSeconds == 30, "no room, no longer grace"
     assert "GOMEMLIMIT" not in _env, "the binary sets the 48 MiB its buffer budget is sized for"
     assert _b.ports == [{name = "bridge-health", containerPort = 8085, protocol = "TCP"}]
@@ -702,7 +701,7 @@ test_the_harness_knows_its_factory_task = lambda {
 
 test_the_harness_is_the_footer_build = lambda {
     _image = _pod(_run({})).containers[0].image
-    assert _image.startswith("ghcr.io/smana/agent-harness:v0.2.0"), "H-S3's harness (SP2 design §5)"
+    assert _image.startswith("ghcr.io/smana/agent-harness:v0.3.0"), "the disruption build, on H-S3's footer (disruption design §2)"
     assert "@sha256:" in _image, "pinned by digest"
 }
 
@@ -940,4 +939,10 @@ test_the_pod_is_read_from_the_required_resources = lambda {
         requiredResources = {}
     }) == [], "function-kcl always sets requiredResources: no runPod is no pod"
     assert _requiredPods({}) == None, "kcl test's params: unknown"
+}
+
+test_the_harness_calls_its_bridge_on_loopback = lambda {
+    _env = {e.name: e.value for e in _pod(_run({roomRef = "3kq7x2ma"})).containers[0].env}
+    assert _env.BRIDGE_URL == "http://127.0.0.1:8085", "agent-run's final read (disruption design §2)"
+    assert "BRIDGE_URL" not in {e.name: e.value for e in _pod(_run({})).containers[0].env}, "no room, no bridge"
 }
