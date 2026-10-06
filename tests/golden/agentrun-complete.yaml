@@ -382,7 +382,7 @@ spec:
           value: github,pypi,golang
         - name: FLUSH_GRACE
           value: 12s
-        image: ghcr.io/smana/room-bridge:v0.0.1-pr11.eb61ce7c@sha256:c01442cc5ec3dc0ed9117aff55a7709af2c2585c5f7e72c6078be7fa1f05fa73
+        image: ghcr.io/smana/room-bridge:v0.0.1-pr22.fe9655d9@sha256:04b339e2e95ebc078f268955a0fa1eedac84f0f327155d0ae1d0be120c3a60aa
         livenessProbe:
           failureThreshold: 3
           httpGet:
@@ -431,7 +431,7 @@ spec:
           readOnly: true
       - args:
         - gate
-        image: ghcr.io/smana/room-bridge:v0.0.1-pr11.eb61ce7c@sha256:c01442cc5ec3dc0ed9117aff55a7709af2c2585c5f7e72c6078be7fa1f05fa73
+        image: ghcr.io/smana/room-bridge:v0.0.1-pr22.fe9655d9@sha256:04b339e2e95ebc078f268955a0fa1eedac84f0f327155d0ae1d0be120c3a60aa
         name: room-gate
         resources:
           limits:
