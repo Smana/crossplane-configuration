@@ -170,11 +170,15 @@ spec:
           # reconcile (F2) — so removing an annotation never resurrects a run, and a
           # revoke arriving after completion never regresses a finished one either.
           # `lost` (F12) is a replacement pod held by _POD_LOST_GATE.
+          # Pending means never started: Running latches too, below every end. agent-sandbox
+          # v1.0.3 reports Ready=False from the harness's exit until the pod is Succeeded
+          # (the sidecars drain for up to 45 s), and a run read Pending then looks never
+          # admitted to the factory, which deletes it.
           _phaseOf = lambda annotations: any, previous: str, sandbox: any, lost: bool -> str {
               _revoked = _get(annotations, "agents.ogenki.io/revoked") or ""
               _finished = _condition(sandbox, "Finished")
               _ready = _condition(sandbox, "Ready")
-              previous if previous in _TERMINAL_PHASES else "BudgetExhausted" if _revoked in _BUDGET_REASONS else "Revoked" if _revoked == "manual" else "Succeeded" if _finished?.status == "True" and _finished?.reason == "PodSucceeded" else "Failed" if _finished?.status == "True" and _finished?.reason == "PodFailed" else "Failed" if lost else "Running" if _ready?.status == "True" else "Pending"
+              previous if previous in _TERMINAL_PHASES else "BudgetExhausted" if _revoked in _BUDGET_REASONS else "Revoked" if _revoked == "manual" else "Succeeded" if _finished?.status == "True" and _finished?.reason == "PodSucceeded" else "Failed" if _finished?.status == "True" and _finished?.reason == "PodFailed" else "Failed" if lost else "Running" if _ready?.status == "True" or previous == "Running" else "Pending"
           }
 
           # The reason latches with the phase (F2): once `previousPhase` is terminal,

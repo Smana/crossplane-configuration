@@ -731,7 +731,7 @@ test_a_running_run_gates_any_replacement_pod = lambda {
     assert _pod(_res).schedulingGates == [{name = "agents.ogenki.io/pod-lost"}]
     # A readiness flap is not a lost pod: the gate stays, the run is not failed.
     _flap = _render(_xr({}, {}, {}, {phase = "Running"}), _appliedSandbox(True, [{type = "Ready", status = "False"}, {type = "PodScheduled", status = "True", reason = "PodScheduled"}]), _DXR)
-    assert _status(_flap).phase == "Pending"
+    assert _status(_flap).phase == "Running", "nor a run that never started"
     assert _pod(_flap).schedulingGates == [{name = "agents.ogenki.io/pod-lost"}], "the gate never comes off once Running"
 }
 
@@ -748,12 +748,35 @@ test_a_replacement_pod_ends_the_run_pod_lost = lambda {
 }
 
 test_a_lost_status_write_still_finds_the_lost_pod = lambda {
-    # The Running status write was lost, or the gap between the two pods read Pending:
-    # the gate on the applied Sandbox remembers the run was Running.
+    # The Running status write was lost: the gate on the applied Sandbox
+    # remembers the run was Running.
     _res = _render(_xr({}, {}, {}, {phase = "Pending"}), _appliedSandbox(True, _HELD), _DXR)
     assert _status(_res).phase == "Failed" and _status(_res).reason == "PodLost"
     _gap = _render(_xr({}, {}, {}, {phase = "Running"}), _appliedSandbox(True, [{type = "Ready", status = "False", reason = "DependenciesNotReady"}]), _DXR)
-    assert _status(_gap).phase == "Pending" and _pod(_gap).schedulingGates == [{name = "agents.ogenki.io/pod-lost"}], "between the pods: wait, gated"
+    assert _status(_gap).phase == "Running" and _pod(_gap).schedulingGates == [{name = "agents.ogenki.io/pod-lost"}], "between the pods: wait, gated"
+}
+
+# ---- B: once the harness exits, agent-sandbox v1.0.3 reports Ready=False while
+# the native sidecars drain, until the pod is Succeeded. Pending means never
+# started, so a started run reads Running until it ends. ----
+_DRAINING = [{type = "Ready", status = "False", message = "Pod is Running but not Ready"}, {type = "PodScheduled", status = "True", reason = "PodScheduled"}]
+
+test_a_finishing_run_stays_running = lambda {
+    _res = _render(_xr({}, {}, {}, {phase = "Running"}), _appliedSandbox(True, _DRAINING), _DXR)
+    assert _status(_res).phase == "Running", "a draining pod is not a run waiting for admission"
+    assert "reason" not in _status(_res)
+    assert _kind(_res, "Sandbox")[0].spec.operatingMode == "Running", "nothing is suspended before Finished"
+    # Every end still wins over the latch.
+    _failed = _DRAINING + [{type = "Finished", status = "True", reason = "PodFailed"}]
+    assert _phaseFor({}, {phase = "Running"}, _appliedSandbox(True, _failed)) == "Failed"
+    assert _phaseFor({"agents.ogenki.io/revoked" = "manual"}, {phase = "Running"}, _appliedSandbox(True, _DRAINING)) == "Revoked"
+}
+
+test_a_run_that_never_started_stays_pending = lambda {
+    _unready = [{type = "Ready", status = "False"}]
+    assert _phaseFor({}, {}, _appliedSandbox(False, _unready)) == "Pending"
+    assert _phaseFor({}, {phase = "Pending"}, _appliedSandbox(False, _unready)) == "Pending"
+    assert _phaseFor({}, {phase = "Pending"}, _appliedSandbox(False, _DRAINING)) == "Pending", "bound is not started"
 }
 
 test_a_first_pod_gated_by_kueue_is_not_lost = lambda {
