@@ -366,6 +366,8 @@ spec:
           value: k2m4q7wa
         - name: ROOM_ID
           value: 3kq7x2ma
+        - name: BRANCH
+          value: agent/6f2kq3ma
         - name: CONVERSATION_ID
           value: ""
         - name: BROKER_URL

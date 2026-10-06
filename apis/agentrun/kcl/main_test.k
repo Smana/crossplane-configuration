@@ -604,6 +604,18 @@ test_room_bridge_only_with_a_room = lambda {
     assert _b.securityContext.runAsNonRoot == True and _b.securityContext.allowPrivilegeEscalation == False and _b.securityContext.seccompProfile.type == "RuntimeDefault"
 }
 
+# CC-S5: the bridge classifies a push against the run's own branch. Without
+# BRANCH every push reads forge.other and waits for a human's approval.
+test_the_bridge_knows_the_run_branch = lambda {
+    _p = _pod(_run({roomRef = "3kq7x2ma"}))
+    _bridge = {e.name: e.value for e in _p.initContainers[1].env}
+    _harness = {e.name: e.value for e in _p.containers[0].env}
+    assert "BRANCH" in _bridge, "the bridge gets the run's branch"
+    assert _bridge.BRANCH == "agent/7f3cq2xz" and _bridge.BRANCH == _harness.BRANCH, "the branch the harness pushes to"
+    _named = {e.name: e.value for e in _pod(_run({roomRef = "3kq7x2ma", branch = "agent/6f2kq3ma"})).initContainers[1].env}
+    assert _named.BRANCH == "agent/6f2kq3ma"
+}
+
 test_only_the_bridge_mounts_the_room_token = lambda {
     _p = _pod(_run({roomRef = "3kq7x2ma"}))
     assert sorted([v.name for v in _p.volumes if _projectsToken(v)]) == ["gateway-token", "room-token", "sts-token"]
