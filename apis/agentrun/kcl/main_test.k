@@ -605,15 +605,19 @@ test_room_bridge_only_with_a_room = lambda {
 }
 
 # CC-S5: the bridge classifies a push against the run's own branch. Without
-# BRANCH every push reads forge.other and waits for a human's approval.
+# BRANCH every push reads forge.other and waits for a human's approval. The
+# bridge has no role to fail closed on, so the composition is the guard: an
+# implementer's bridge always gets a non-empty branch.
+_bridgeEnv = lambda spec: any -> any {
+    {e.name: e.value for e in _pod(_run({role = "implementer", roomRef = "3kq7x2ma"} | spec)).initContainers[1].env}
+}
+
 test_the_bridge_knows_the_run_branch = lambda {
-    _p = _pod(_run({roomRef = "3kq7x2ma"}))
-    _bridge = {e.name: e.value for e in _p.initContainers[1].env}
-    _harness = {e.name: e.value for e in _p.containers[0].env}
-    assert "BRANCH" in _bridge, "the bridge gets the run's branch"
-    assert _bridge.BRANCH == "agent/7f3cq2xz" and _bridge.BRANCH == _harness.BRANCH, "the branch the harness pushes to"
-    _named = {e.name: e.value for e in _pod(_run({roomRef = "3kq7x2ma", branch = "agent/6f2kq3ma"})).initContainers[1].env}
-    assert _named.BRANCH == "agent/6f2kq3ma"
+    assert _bridgeEnv({}).BRANCH == "agent/7f3cq2xz", "the default, agent/<runId>"
+    assert _bridgeEnv({branch = "agent/6f2kq3ma"}).BRANCH == "agent/6f2kq3ma", "the factory's branch"
+    assert _bridgeEnv({branch = ""}).BRANCH == "agent/7f3cq2xz", "never empty, whatever the claim carries"
+    _harness = {e.name: e.value for e in _pod(_run({roomRef = "3kq7x2ma"})).containers[0].env}
+    assert _bridgeEnv({}).BRANCH == _harness.BRANCH, "the branch the harness pushes to"
 }
 
 test_only_the_bridge_mounts_the_room_token = lambda {
