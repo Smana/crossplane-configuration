@@ -149,23 +149,26 @@ _observed = lambda state: any, key: str -> any {
 # unchanged no matter what the annotations or the observed Sandbox say this
 # reconcile (F2) — so removing an annotation never resurrects a run, and a
 # revoke arriving after completion never regresses a finished one either.
-# `lost` (F12) is a replacement pod held by _POD_LOST_GATE.
+# `lost` (F12) is a replacement pod held by _POD_LOST_GATE; `disrupted` is a pod the kubelet or
+# the control plane stopped for its node (disruption design §3), which fails the run even before
+# the Sandbox reports Finished.
 # Pending means never started: Running latches too, below every end. agent-sandbox
 # v1.0.3 reports Ready=False from the harness's exit until the pod is Succeeded
 # (the sidecars drain for up to 45 s), and a run read Pending then looks never
 # admitted to the factory, which deletes it.
-_phaseOf = lambda annotations: any, previous: str, sandbox: any, lost: bool -> str {
+_phaseOf = lambda annotations: any, previous: str, sandbox: any, lost: bool, disrupted: bool -> str {
     _revoked = _get(annotations, "agents.ogenki.io/revoked") or ""
     _finished = _condition(sandbox, "Finished")
     _ready = _condition(sandbox, "Ready")
-    previous if previous in _TERMINAL_PHASES else "BudgetExhausted" if _revoked in _BUDGET_REASONS else "Revoked" if _revoked == "manual" else "Succeeded" if _finished?.status == "True" and _finished?.reason == "PodSucceeded" else "Failed" if _finished?.status == "True" and _finished?.reason == "PodFailed" else "Failed" if lost else "Running" if _ready?.status == "True" or previous == "Running" else "Pending"
+    previous if previous in _TERMINAL_PHASES else "BudgetExhausted" if _revoked in _BUDGET_REASONS else "Revoked" if _revoked == "manual" else "Succeeded" if _finished?.status == "True" and _finished?.reason == "PodSucceeded" else "Failed" if disrupted else "Failed" if _finished?.status == "True" and _finished?.reason == "PodFailed" else "Failed" if lost else "Running" if _ready?.status == "True" or previous == "Running" else "Pending"
 }
 
 # The reason latches with the phase (F2): once `previousPhase` is terminal,
 # `previousReason` is returned unchanged so a later revoke annotation can't
-# overwrite why a run actually stopped.
-_reasonOf = lambda phase: str, previousPhase: str, previousReason: any, revoked: any, lost: bool -> any {
-    previousReason if previousPhase in _TERMINAL_PHASES else "PodLost" if phase == "Failed" and lost else "PodFailed" if phase == "Failed" else revoked if revoked in _REVOKE_REASONS else None
+# overwrite why a run actually stopped. Disruption design §3's precedence:
+# Disrupted, then PodLost, then PodFailed.
+_reasonOf = lambda phase: str, previousPhase: str, previousReason: any, revoked: any, lost: bool, disrupted: bool -> any {
+    previousReason if previousPhase in _TERMINAL_PHASES else "Disrupted" if phase == "Failed" and disrupted else "PodLost" if phase == "Failed" and lost else "PodFailed" if phase == "Failed" else revoked if revoked in _REVOKE_REASONS else None
 }
 
 # The Sandbox the composition last applied carries the gate once the run was
@@ -173,6 +176,42 @@ _reasonOf = lambda phase: str, previousPhase: str, previousReason: any, revoked:
 _gated = lambda sandbox: any -> bool {
     _gates = sandbox?.spec?.podTemplate?.spec?.schedulingGates or []
     len([g for g in _gates if g?.name == _POD_LOST_GATE]) > 0
+}
+
+# Disruption design §3: a pod the kubelet or the control plane stopped for its node's sake
+# (graceful node shutdown, eviction, preemption, PodGC) ends Failed with DisruptionTarget=True.
+# A plain DELETE, a crash, an OOM kill or the deadline sets none.
+_disruptedPod = lambda pod: any -> bool {
+    _get(pod?.status, "phase") == "Failed" and _condition(pod, "DisruptionTarget")?.status == "True"
+}
+
+# The pod the Sandbox reported Failed is no longer there to read: deleted (a deletionTimestamp, or
+# gone) or already replaced (a Pending pod of the same name). A pod that failed on its own stays
+# until this composition suspends the Sandbox. pods is _requiredPods' value.
+_podGone = lambda pods: any -> bool {
+    _seen = pods[0] if pods else None
+    pods != None and (len(pods) == 0 or _get(_seen?.metadata, "deletionTimestamp") != None or _get(_seen?.status, "phase") == "Pending")
+}
+
+# The run's pod as Crossplane hands it over through required resources (function-kcl v0.12.2):
+# [pod], or [] once it is gone. function-kcl always sets requiredResources, so a missing runPod is
+# no pod; None only where nothing set requiredResources at all (kcl test).
+_requiredPods = lambda params: any -> any {
+    _rr = _get(params, "requiredResources")
+    _items = _get(_rr, "runPod") or []
+    [_get(i, "Resource") for i in _items] if _rr != None else None
+}
+
+# Ask Crossplane for the run's pod, named after the Sandbox, which is named after the XR. Crossplane
+# serves it from a cluster-wide informer: its ServiceAccount needs get, list and watch on pods.
+_podRequirement = lambda _oxr: any -> [any] {
+    [{
+        apiVersion = "meta.krm.kcl.dev/v1alpha1"
+        kind = "RequiredResources"
+        requirements = {
+            runPod = {apiVersion = "v1", kind = "Pod", name = _oxr.metadata.name, namespace = _oxr.metadata.namespace}
+        }
+    }]
 }
 
 # A malformed annotation is never projected; the last valid value stays. Nor is a
@@ -213,7 +252,7 @@ _rulesFor = lambda role: str, runId: str, repository: str, branch: str, baseRef:
     _intro + (_write if role == "implementer" else _read) + _roomRules(role, roomRef)
 }
 
-_render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
+_renderRun = lambda _oxr: any, _ocds: any, _dxr: any, _pods: any -> [any] {
     _name = _oxr.metadata.name
     _ns = _oxr.metadata.namespace
     assert _ns == "agents", "an AgentRun must live in namespace agents, got {}".format(_ns)
@@ -317,7 +356,9 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
     _started = _prevPhase == "Running" or _gated(_sandbox)
     _scheduled = _condition(_sandbox, "PodScheduled")
     _lost = _started and _scheduled?.status == "False"
-    _phase = _phaseOf(_ann, _prevPhase, _sandbox, _lost)
+    _runPod = _pods[0] if _pods else None
+    _disrupted = _disruptedPod(_runPod)
+    _phase = _phaseOf(_ann, _prevPhase, _sandbox, _lost, _disrupted)
     _revoked = _get(_ann, "agents.ogenki.io/revoked")
     _validRevoke = _revoked in _REVOKE_REASONS
 
@@ -354,8 +395,8 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
     # if the annotation is missing or not one this composition writes; a
     # Succeeded one had none.
     _finishedWhy = _get(_sandbox?.metadata?.annotations, "agents.ogenki.io/finished-reason")
-    _prevReason = ((_finishedWhy if _finishedWhy in ["PodFailed", "PodLost"] else "PodFailed") if _finishedFor == "Failed" else None) if _recovered else _get(_previous, "reason")
-    _reason = _reasonOf(_phase, _prevPhase, _prevReason, _revoked, _lost)
+    _prevReason = ((_finishedWhy if _finishedWhy in ["PodFailed", "PodLost", "Disrupted"] else "PodFailed") if _finishedFor == "Failed" else None) if _recovered else _get(_previous, "reason")
+    _reason = _reasonOf(_phase, _prevPhase, _prevReason, _revoked, _lost or _podGone(_pods), _disrupted)
     _labels = {
         "agents.ogenki.io/run-id" = _runId
         "agents.ogenki.io/role" = _role
@@ -638,4 +679,9 @@ _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
     _serviceAccount + _taskConfigMap + _networkPolicy + _cnpUsage + _sandboxResource + _status
 }
 
-items = _render(oxr, ocds, option("params").dxr)
+# The render without the pod: the Sandbox alone decides, as before the pod was read.
+_render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
+    _renderRun(_oxr, _ocds, _dxr, None)
+}
+
+items = _renderRun(oxr, ocds, option("params").dxr, _requiredPods(option("params"))) + _podRequirement(oxr)

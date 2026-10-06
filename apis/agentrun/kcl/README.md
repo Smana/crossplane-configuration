@@ -26,6 +26,12 @@ the finished pod and never recreates it. The Sandbox also carries
 `agents.ogenki.io/finished-phase`, so a lost XR status write cannot turn a finished run back into
 `Pending` and run it again.
 
+Why a `Failed` run ended is read from its pod, which the composition asks Crossplane for as a
+required resource (`runPod`, function-kcl v0.12.2): `Disrupted` when the pod is `Failed` with
+`DisruptionTarget=True` (a graceful node shutdown, an eviction, a preemption), `PodLost` when it was
+deleted or replaced before a final state was read, `PodFailed` otherwise. Crossplane serves the
+pod from a cluster-wide informer, so its ServiceAccount needs `get`, `list` and `watch` on pods.
+
 ## API
 
 ```yaml

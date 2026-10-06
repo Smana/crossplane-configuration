@@ -838,3 +838,106 @@ test_a_finished_pod_is_not_lost = lambda {
     _res = _render(_xr({}, {}, {}, {phase = "Running"}), _appliedSandbox(True, _done), _DXR)
     assert _status(_res).phase == "Succeeded" and "reason" not in _status(_res)
 }
+
+# ---- Disruption design §3: the run's pod says why it ended ----
+# After a graceful node shutdown the kubelet leaves the pod Failed with DisruptionTarget
+# (kubernetes v1.34 nodeshutdown_manager); it is not deleted.
+_shutDownPod = {
+    metadata = {name = _NAME, namespace = "agents"}
+    status = {
+        phase = "Failed"
+        reason = "Terminated"
+        message = "Pod was terminated in response to imminent node shutdown."
+        conditions = [{type = "DisruptionTarget", status = "True", reason = "TerminationByKubelet"}]
+    }
+}
+# The harness exited 1: Failed, nothing disrupted it, nobody deleted it.
+_crashedPod = {metadata = {name = _NAME, namespace = "agents"}, status = {phase = "Failed", conditions = [{type = "Ready", status = "False"}]}}
+# A plain DELETE: the kubelet moved it to Failed before its API deletion, with no DisruptionTarget.
+_deletedPod = {metadata = {name = _NAME, namespace = "agents", deletionTimestamp = "2026-10-04T10:39:50Z"}, status = {phase = "Failed"}}
+# F12's gated replacement: agent-sandbox's new pod of the same name.
+_heldPod = {metadata = {name = _NAME, namespace = "agents"}, status = {phase = "Pending", conditions = [{type = "PodScheduled", status = "False", reason = "SchedulingGated"}]}}
+_FINISHED_FAILED = [{type = "Ready", status = "False"}, {type = "Finished", status = "True", reason = "PodFailed", lastTransitionTime = "2026-10-04T10:40:00Z"}]
+
+_endWith = lambda status: any, observed: any, pods: any -> any {
+    _status(_renderRun(_xr({}, {}, {}, status), observed, _DXR, pods))
+}
+
+test_a_node_shutdown_ends_the_run_disrupted = lambda {
+    _st = _endWith({phase = "Running"}, _appliedSandbox(True, _FINISHED_FAILED), [_shutDownPod])
+    assert _st.phase == "Failed" and _st.reason == "Disrupted"
+    _later = _endWith(_st, _suspendedSandbox("Failed"), [])
+    assert _later.phase == "Failed" and _later.reason == "Disrupted", "it latches once the pod is gone"
+}
+
+test_a_disrupted_pod_fails_the_run_before_the_sandbox_says_so = lambda {
+    _st = _endWith({phase = "Running"}, _appliedSandbox(True, [{type = "Ready", status = "False"}, {type = "PodScheduled", status = "True"}]), [_shutDownPod])
+    assert _st.phase == "Failed" and _st.reason == "Disrupted"
+}
+
+test_a_crashed_harness_ends_the_run_pod_failed = lambda {
+    _st = _endWith({phase = "Running"}, _appliedSandbox(True, _FINISHED_FAILED), [_crashedPod])
+    assert _st.phase == "Failed" and _st.reason == "PodFailed"
+}
+
+test_a_deleted_or_replaced_pod_ends_the_run_pod_lost = lambda {
+    assert _endWith({phase = "Running"}, _appliedSandbox(True, _FINISHED_FAILED), [_deletedPod]).reason == "PodLost", "deleted, read before it left"
+    assert _endWith({phase = "Running"}, _appliedSandbox(True, _FINISHED_FAILED), []).reason == "PodLost", "deleted, gone"
+    assert _endWith({phase = "Running"}, _appliedSandbox(True, _FINISHED_FAILED), [_heldPod]).reason == "PodLost", "already replaced"
+    assert _endWith({phase = "Running"}, _appliedSandbox(True, _HELD), [_heldPod]).reason == "PodLost", "F12's gated replacement"
+}
+
+test_a_disruption_that_was_abandoned_is_not_one = lambda {
+    _cleared = {metadata = {name = _NAME, namespace = "agents"}, status = {phase = "Failed", conditions = [{type = "DisruptionTarget", status = "False", reason = "TerminationByKubelet"}]}}
+    assert _endWith({phase = "Running"}, _appliedSandbox(True, _FINISHED_FAILED), [_cleared]).reason == "PodFailed"
+}
+
+test_a_pending_eviction_keeps_the_run_running = lambda {
+    _evicting = {metadata = {name = _NAME, namespace = "agents"}, status = {phase = "Running", conditions = [{type = "DisruptionTarget", status = "True", reason = "EvictionByEvictionAPI"}]}}
+    _st = _endWith({phase = "Running"}, _appliedSandbox(True, [{type = "Ready", status = "True"}]), [_evicting])
+    assert _st.phase == "Running" and "reason" not in _st
+}
+
+test_a_revocation_wins_over_a_disruption = lambda {
+    _st = _status(_renderRun(_xr({}, {"agents.ogenki.io/revoked" = "manual"}, {}, {phase = "Running"}), _appliedSandbox(True, _FINISHED_FAILED), _DXR, [_shutDownPod]))
+    assert _st.phase == "Revoked" and _st.reason == "manual"
+}
+
+test_a_lost_status_write_keeps_disrupted = lambda {
+    _res = _renderRun(_xr({}, {}, {}, {phase = "Running"}), _appliedSandbox(True, _FINISHED_FAILED), _DXR, [_shutDownPod])
+    assert _kind(_res, "Sandbox")[0].metadata.annotations["agents.ogenki.io/finished-reason"] == "Disrupted"
+    _sbx = {
+        "xplane-run-7f3cq2xz-sandbox" = {
+            Resource = {
+                metadata = {creationTimestamp = "2026-09-25T10:00:00Z", annotations = {"agents.ogenki.io/finished-phase" = "Failed", "agents.ogenki.io/finished-reason" = "Disrupted"}}
+                spec.operatingMode = "Suspended"
+                status.conditions = [{type = "Ready", status = "False", reason = "SandboxSuspended"}]
+            }
+        }
+    }
+    assert _status(_render(_xr({}, {}, {}, {}), _sbx, _DXR)).reason == "Disrupted"
+}
+
+test_without_the_pod_the_reasons_are_unchanged = lambda {
+    # Before Crossplane fetched the requirement (None), the Sandbox alone decides, as before.
+    assert _endWith({phase = "Running"}, _appliedSandbox(True, _FINISHED_FAILED), None).reason == "PodFailed"
+}
+
+test_the_composition_asks_crossplane_for_its_pod = lambda {
+    assert _podRequirement(_xr({}, {}, {}, {})) == [{apiVersion = "meta.krm.kcl.dev/v1alpha1", kind = "RequiredResources", requirements = {
+        runPod = {apiVersion = "v1", kind = "Pod", name = _NAME, namespace = "agents"}
+    }}]
+}
+
+test_the_pod_is_read_from_the_required_resources = lambda {
+    assert _requiredPods({
+        requiredResources = {runPod = [{Resource = _shutDownPod}]}
+    }) == [_shutDownPod]
+    assert _requiredPods({
+        requiredResources = {runPod = []}
+    }) == [], "fetched, and gone"
+    assert _requiredPods({
+        requiredResources = {}
+    }) == [], "function-kcl always sets requiredResources: no runPod is no pod"
+    assert _requiredPods({}) == None, "kcl test's params: unknown"
+}
