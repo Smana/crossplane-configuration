@@ -228,13 +228,9 @@ spec:
           value: 6f2kq3ma
         - name: TASK_URL
           value: https://github.com/Smana/cloud-native-ref/pull/2090
-        image: ghcr.io/smana/agent-harness:v0.2.0-pr2142.10c062c2@sha256:78120d8dc5b519619968bb811ce63c7e67c9fa6de2755c3a31ff213c2bcce977
-        lifecycle:
-          preStop:
-            exec:
-              command:
-              - /usr/local/bin/git-credential-agent
-              - revoke
+        - name: BRIDGE_URL
+          value: http://127.0.0.1:8085
+        image: ghcr.io/smana/agent-harness:v0.3.0-pr2215.3aea4800@sha256:66a73783388bc442f066e552b0acd2195154711661f7ec5e6daaa2668f40ea19
         livenessProbe:
           exec:
             command:
@@ -382,7 +378,7 @@ spec:
           value: github,pypi,golang
         - name: FLUSH_GRACE
           value: 12s
-        image: ghcr.io/smana/room-bridge:v0.0.1-pr22.fe9655d9@sha256:04b339e2e95ebc078f268955a0fa1eedac84f0f327155d0ae1d0be120c3a60aa
+        image: ghcr.io/smana/room-bridge:v0.0.1-pr24.465a2747@sha256:d4edc16947539a65ed5abaab03a79daec359f1f54e8c69373194fb99f939959c
         livenessProbe:
           failureThreshold: 3
           httpGet:
@@ -431,7 +427,7 @@ spec:
           readOnly: true
       - args:
         - gate
-        image: ghcr.io/smana/room-bridge:v0.0.1-pr22.fe9655d9@sha256:04b339e2e95ebc078f268955a0fa1eedac84f0f327155d0ae1d0be120c3a60aa
+        image: ghcr.io/smana/room-bridge:v0.0.1-pr24.465a2747@sha256:d4edc16947539a65ed5abaab03a79daec359f1f54e8c69373194fb99f939959c
         name: room-gate
         resources:
           limits:

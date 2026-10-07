@@ -80,11 +80,12 @@ _runningSandboxWithStaleAnnotation = lambda finishedFor: str -> any {
 }
 
 # A Sandbox as the composition last applied it, gated or not, with conditions.
+_SANDBOX_UID = "9a1d4c2e-7b3f-4e8a-b5c6-1f2e3d4c5b6a"
 _appliedSandbox = lambda gated: bool, conditions: [any] -> any {
     {
         "xplane-run-7f3cq2xz-sandbox" = {
             Resource = {
-                metadata = {creationTimestamp = "2026-09-25T10:00:00Z"}
+                metadata = {creationTimestamp = "2026-09-25T10:00:00Z", uid = _SANDBOX_UID}
                 spec = {operatingMode = "Running", podTemplate.spec.schedulingGates = [{name = "agents.ogenki.io/pod-lost"}] if gated else []}
                 status.conditions = conditions
             }
@@ -454,7 +455,7 @@ test_harness_profile_is_the_platform_image = lambda {
     assert _c.image.startswith("ghcr.io/smana/agent-harness:"), "the openhands profile is the repo-built harness (S7)"
     assert "@sha256:" in _c.image, "pinned by digest"
     assert _c.args == [], "agent-run starts agent-server on 127.0.0.1:8000 itself"
-    assert _c.lifecycle.preStop.exec.command == ["/usr/local/bin/git-credential-agent", "revoke"], "a deleted run revokes its GitHub token (SC-07)"
+    assert "lifecycle" not in _c, "no preStop: agent-run revokes the token after its checkpoint push (disruption design §2)"
 }
 
 # ---- M6: agent-server stays on loopback, probed from inside the container ----
@@ -589,12 +590,11 @@ test_room_bridge_only_with_a_room = lambda {
     assert _env.HARNESS_URL == "http://127.0.0.1:8000" and _env.ROOM_TOKEN_FILE == "/var/run/secrets/agents/room/token"
     assert _env.EGRESS_PROFILES == "github"
 
-    # The kubelet signals the bridge only after the harness exits: its preStop revoke,
-    # then agent-run's SIGTERM cleanup (server.wait(10) and a second revoke), come first.
-    _preStop = 12
-    _harnessCleanup = 11
+    # The kubelet signals the bridge only after the harness exits: agent-run's shutdown sequence
+    # comes first, its five boxes (14 s) then its span's export (1 s). There is no preStop.
+    _harnessShutdown = 14 + 1
     _healthDrain = 2
-    assert _preStop + _harnessCleanup + int(_env.FLUSH_GRACE.removesuffix("s")) + _healthDrain <= _p.terminationGracePeriodSeconds
+    assert _harnessShutdown + int(_env.FLUSH_GRACE.removesuffix("s")) + _healthDrain <= _p.terminationGracePeriodSeconds
     assert _pod(_run({})).terminationGracePeriodSeconds == 30, "no room, no longer grace"
     assert "GOMEMLIMIT" not in _env, "the binary sets the 48 MiB its buffer budget is sized for"
     assert _b.ports == [{name = "bridge-health", containerPort = 8085, protocol = "TCP"}]
@@ -702,7 +702,7 @@ test_the_harness_knows_its_factory_task = lambda {
 
 test_the_harness_is_the_footer_build = lambda {
     _image = _pod(_run({})).containers[0].image
-    assert _image.startswith("ghcr.io/smana/agent-harness:v0.2.0"), "H-S3's harness (SP2 design §5)"
+    assert _image.startswith("ghcr.io/smana/agent-harness:v0.3.0"), "the disruption build, on H-S3's footer (disruption design §2)"
     assert "@sha256:" in _image, "pinned by digest"
 }
 
@@ -837,4 +837,204 @@ test_a_finished_pod_is_not_lost = lambda {
     _done = _HELD + [{type = "Finished", status = "True", reason = "PodSucceeded", lastTransitionTime = "2026-09-25T10:30:00Z"}]
     _res = _render(_xr({}, {}, {}, {phase = "Running"}), _appliedSandbox(True, _done), _DXR)
     assert _status(_res).phase == "Succeeded" and "reason" not in _status(_res)
+}
+
+# ---- Disruption design §3: the run's pod says why it ended ----
+# agent-sandbox sets the Sandbox as the pod's controller (v1.0.3 sandbox_controller.go).
+_OWNED = [{apiVersion = "agents.x-k8s.io/v1beta1", kind = "Sandbox", name = _NAME, uid = _SANDBOX_UID, controller = True}]
+
+# After a graceful node shutdown the kubelet leaves the pod Failed with DisruptionTarget
+# (kubernetes v1.34 nodeshutdown_manager); it is not deleted.
+_shutDownPod = {
+    metadata = {name = _NAME, namespace = "agents", ownerReferences = _OWNED}
+    status = {
+        phase = "Failed"
+        reason = "Terminated"
+        message = "Pod was terminated in response to imminent node shutdown."
+        conditions = [{type = "DisruptionTarget", status = "True", reason = "TerminationByKubelet"}]
+    }
+}
+# The harness exited 1: Failed, nothing disrupted it, nobody deleted it.
+_crashedPod = {metadata = {name = _NAME, namespace = "agents", ownerReferences = _OWNED}, status = {phase = "Failed", conditions = [{type = "Ready", status = "False"}]}}
+# A plain DELETE: the kubelet moved it to Failed before its API deletion, with no DisruptionTarget.
+_deletedPod = {metadata = {name = _NAME, namespace = "agents", deletionTimestamp = "2026-10-04T10:39:50Z"}, status = {phase = "Failed"}}
+# F12's gated replacement: agent-sandbox's new pod of the same name.
+_heldPod = {metadata = {name = _NAME, namespace = "agents"}, status = {phase = "Pending", conditions = [{type = "PodScheduled", status = "False", reason = "SchedulingGated"}]}}
+_FINISHED_FAILED = [{type = "Ready", status = "False"}, {type = "Finished", status = "True", reason = "PodFailed", lastTransitionTime = "2026-10-04T10:40:00Z"}]
+
+_endWith = lambda status: any, observed: any, pods: any -> any {
+    _status(_renderRun(_xr({}, {}, {}, status), observed, _DXR, pods))
+}
+
+test_a_node_shutdown_ends_the_run_disrupted = lambda {
+    _st = _endWith({phase = "Running"}, _appliedSandbox(True, _FINISHED_FAILED), [_shutDownPod])
+    assert _st.phase == "Failed" and _st.reason == "Disrupted"
+    _later = _endWith(_st, _suspendedSandbox("Failed"), [])
+    assert _later.phase == "Failed" and _later.reason == "Disrupted", "it latches once the pod is gone"
+}
+
+test_a_disrupted_pod_fails_the_run_before_the_sandbox_says_so = lambda {
+    _st = _endWith({phase = "Running"}, _appliedSandbox(True, [{type = "Ready", status = "False"}, {type = "PodScheduled", status = "True"}]), [_shutDownPod])
+    assert _st.phase == "Failed" and _st.reason == "Disrupted"
+}
+
+test_a_crashed_harness_ends_the_run_pod_failed = lambda {
+    _st = _endWith({phase = "Running"}, _appliedSandbox(True, _FINISHED_FAILED), [_crashedPod])
+    assert _st.phase == "Failed" and _st.reason == "PodFailed"
+}
+
+test_a_deleted_or_replaced_pod_ends_the_run_pod_lost = lambda {
+    assert _endWith({phase = "Running"}, _appliedSandbox(True, _FINISHED_FAILED), [_deletedPod]).reason == "PodLost", "deleted, read before it left"
+    assert _endWith({phase = "Running"}, _appliedSandbox(True, _FINISHED_FAILED), []).reason == "PodLost", "deleted, gone"
+    assert _endWith({phase = "Running"}, _appliedSandbox(True, _FINISHED_FAILED), [_heldPod]).reason == "PodLost", "already replaced"
+    assert _endWith({phase = "Running"}, _appliedSandbox(True, _HELD), [_heldPod]).reason == "PodLost", "F12's gated replacement"
+}
+
+test_a_disruption_wins_over_a_deletion = lambda {
+    # The Eviction API and Kueue's preemption mark the pod DisruptionTarget, then delete it.
+    _evicted = {
+        metadata = {name = _NAME, namespace = "agents", deletionTimestamp = "2026-10-04T10:39:50Z", ownerReferences = _OWNED}
+        status = {phase = "Failed", conditions = [{type = "DisruptionTarget", status = "True", reason = "EvictionByEvictionAPI"}]}
+    }
+    _st = _endWith({phase = "Running"}, _appliedSandbox(True, _FINISHED_FAILED), [_evicted])
+    assert _st.phase == "Failed" and _st.reason == "Disrupted"
+}
+
+# C1: the harness's own exit code, read from the pod, outranks what its node did to the pod
+# afterwards. aws-0, 2026-10-06: a pod draining its sidecars after a Succeeded run was deleted, and
+# its gated replacement read PodLost: a finished task the factory would have resumed.
+_shutDownAfter = lambda exitCode: int -> any {
+    {
+        metadata = {name = _NAME, namespace = "agents", ownerReferences = _OWNED}
+        status = {
+            phase = "Failed"
+            conditions = [{type = "DisruptionTarget", status = "True", reason = "TerminationByKubelet"}]
+            containerStatuses = [{name = "harness", state.terminated = {exitCode = exitCode, finishedAt = "2026-10-04T10:38:00Z"}}]
+        }
+    }
+}
+_drainingAfter0 = {
+    metadata = {name = _NAME, namespace = "agents", ownerReferences = _OWNED}
+    status = {phase = "Running", containerStatuses = [{name = "harness", state.terminated = {exitCode = 0, finishedAt = "2026-10-04T10:38:00Z"}}]}
+}
+
+test_a_harness_that_exited_0_succeeds_whatever_its_pod_went_through = lambda {
+    # The reconcile Ready=False triggers at the harness's exit, while the sidecars drain.
+    _drain = _renderRun(_xr({}, {}, {}, {phase = "Running"}), _appliedSandbox(True, _DRAINING), _DXR, [_drainingAfter0])
+    _st = _status(_drain)
+    assert _st.phase == "Succeeded" and "reason" not in _st
+    assert _st.finishedAt == "2026-10-04T10:38:00Z", "when the harness exited"
+    assert _kind(_drain, "Sandbox")[0].metadata.annotations["agents.ogenki.io/finished-phase"] == "Succeeded", "M2 remembers it"
+    _shut = _endWith({phase = "Running"}, _appliedSandbox(True, _FINISHED_FAILED), [_shutDownAfter(0)])
+    assert _shut.phase == "Succeeded" and "reason" not in _shut, "a node shutdown during the drain"
+    # The F2 latch holds it once the pod is gone or replaced.
+    _gone = _endWith(_st, _appliedSandbox(True, _FINISHED_FAILED), [])
+    assert _gone.phase == "Succeeded" and "reason" not in _gone
+    _replaced = _endWith(_st, _appliedSandbox(True, _HELD), [_heldPod])
+    assert _replaced.phase == "Succeeded" and "reason" not in _replaced
+    _revoked = _status(_renderRun(_xr({}, {"agents.ogenki.io/revoked" = "manual"}, {}, {phase = "Running"}), _appliedSandbox(True, _DRAINING), _DXR, [_drainingAfter0]))
+    assert _revoked.phase == "Revoked", "a revocation still wins"
+}
+
+test_the_finish_time_latches_with_the_phase = lambda {
+    # Latched at the harness's exit; the Sandbox's Finished, once the sidecars drained, comes later.
+    _st = _endWith({phase = "Running"}, _appliedSandbox(True, _DRAINING), [_drainingAfter0])
+    _later = _endWith(_st, _appliedSandbox(True, _DRAINING + [{type = "Finished", status = "True", reason = "PodSucceeded", lastTransitionTime = "2026-10-04T10:38:40Z"}]), [])
+    assert _later.finishedAt == "2026-10-04T10:38:00Z", "the harness's exit, not the drain's end"
+}
+
+test_only_the_sandboxs_own_pod_ends_the_run = lambda {
+    # A claim deleted and re-created under the same name: the previous Sandbox's pod, still
+    # draining, is not this run's, and agent-sandbox refuses to adopt it.
+    _theirs = {
+        metadata = {name = _NAME, namespace = "agents", ownerReferences = [{apiVersion = "agents.x-k8s.io/v1beta1", kind = "Sandbox", name = _NAME, uid = "0f6e2b1a-earlier-sandbox", controller = True}]}
+        status = _drainingAfter0.status
+    }
+    assert _endWith({phase = "Running"}, _appliedSandbox(True, _DRAINING), [_theirs]).phase == "Running"
+    _unowned = {metadata = {name = _NAME, namespace = "agents"}, status = _drainingAfter0.status}
+    assert _endWith({phase = "Running"}, _appliedSandbox(True, _DRAINING), [_unowned]).phase == "Running", "nor an unowned one"
+    _theirsShutDown = {metadata = _theirs.metadata, status = _shutDownAfter(0).status}
+    assert _endWith({phase = "Running"}, _appliedSandbox(True, _DRAINING), [_theirsShutDown]).phase == "Running", "nor its disruption"
+}
+
+test_only_the_harness_exit_counts = lambda {
+    # A sidecar that exited 0 while the harness still runs ends nothing.
+    _bridgeDone = {
+        metadata = {name = _NAME, namespace = "agents", ownerReferences = _OWNED}
+        status = {phase = "Running", containerStatuses = [
+            {name = "room-bridge", state.terminated = {exitCode = 0, finishedAt = "2026-10-04T10:38:00Z"}}
+            {name = "harness", state.running = {startedAt = "2026-10-04T10:00:00Z"}}
+        ]}
+    }
+    _st = _endWith({phase = "Running"}, _appliedSandbox(True, [{type = "Ready", status = "True"}]), [_bridgeDone])
+    assert _st.phase == "Running" and "reason" not in _st
+}
+
+test_a_harness_that_failed_on_its_own_is_pod_failed_even_when_disrupted = lambda {
+    _st = _endWith({phase = "Running"}, _appliedSandbox(True, _FINISHED_FAILED), [_shutDownAfter(1)])
+    assert _st.phase == "Failed" and _st.reason == "PodFailed"
+    # 143 is the shutdown's own SIGTERM, 137 its SIGKILL: the disruption is why those ended.
+    assert _endWith({phase = "Running"}, _appliedSandbox(True, _FINISHED_FAILED), [_shutDownAfter(143)]).reason == "Disrupted"
+    assert _endWith({phase = "Running"}, _appliedSandbox(True, _FINISHED_FAILED), [_shutDownAfter(137)]).reason == "Disrupted"
+}
+
+test_a_disruption_that_was_abandoned_is_not_one = lambda {
+    _cleared = {metadata = {name = _NAME, namespace = "agents", ownerReferences = _OWNED}, status = {phase = "Failed", conditions = [{type = "DisruptionTarget", status = "False", reason = "TerminationByKubelet"}]}}
+    assert _endWith({phase = "Running"}, _appliedSandbox(True, _FINISHED_FAILED), [_cleared]).reason == "PodFailed"
+}
+
+test_a_pending_eviction_keeps_the_run_running = lambda {
+    _evicting = {metadata = {name = _NAME, namespace = "agents", ownerReferences = _OWNED}, status = {phase = "Running", conditions = [{type = "DisruptionTarget", status = "True", reason = "EvictionByEvictionAPI"}]}}
+    _st = _endWith({phase = "Running"}, _appliedSandbox(True, [{type = "Ready", status = "True"}]), [_evicting])
+    assert _st.phase == "Running" and "reason" not in _st
+}
+
+test_a_revocation_wins_over_a_disruption = lambda {
+    _st = _status(_renderRun(_xr({}, {"agents.ogenki.io/revoked" = "manual"}, {}, {phase = "Running"}), _appliedSandbox(True, _FINISHED_FAILED), _DXR, [_shutDownPod]))
+    assert _st.phase == "Revoked" and _st.reason == "manual"
+}
+
+test_a_lost_status_write_keeps_disrupted = lambda {
+    _res = _renderRun(_xr({}, {}, {}, {phase = "Running"}), _appliedSandbox(True, _FINISHED_FAILED), _DXR, [_shutDownPod])
+    assert _kind(_res, "Sandbox")[0].metadata.annotations["agents.ogenki.io/finished-reason"] == "Disrupted"
+    _sbx = {
+        "xplane-run-7f3cq2xz-sandbox" = {
+            Resource = {
+                metadata = {creationTimestamp = "2026-09-25T10:00:00Z", annotations = {"agents.ogenki.io/finished-phase" = "Failed", "agents.ogenki.io/finished-reason" = "Disrupted"}}
+                spec.operatingMode = "Suspended"
+                status.conditions = [{type = "Ready", status = "False", reason = "SandboxSuspended"}]
+            }
+        }
+    }
+    assert _status(_render(_xr({}, {}, {}, {}), _sbx, _DXR)).reason == "Disrupted"
+}
+
+test_without_the_pod_the_reasons_are_unchanged = lambda {
+    # Before Crossplane fetched the requirement (None), the Sandbox alone decides, as before.
+    assert _endWith({phase = "Running"}, _appliedSandbox(True, _FINISHED_FAILED), None).reason == "PodFailed"
+}
+
+test_the_composition_asks_crossplane_for_its_pod = lambda {
+    assert _podRequirement(_xr({}, {}, {}, {})) == [{apiVersion = "meta.krm.kcl.dev/v1alpha1", kind = "RequiredResources", requirements = {
+        runPod = {apiVersion = "v1", kind = "Pod", name = _NAME, namespace = "agents"}
+    }}]
+}
+
+test_the_pod_is_read_from_the_required_resources = lambda {
+    assert _requiredPods({
+        requiredResources = {runPod = [{Resource = _shutDownPod}]}
+    }) == [_shutDownPod]
+    assert _requiredPods({
+        requiredResources = {runPod = []}
+    }) == [], "fetched, and gone"
+    assert _requiredPods({
+        requiredResources = {}
+    }) == [], "function-kcl always sets requiredResources: no runPod is no pod"
+    assert _requiredPods({}) == None, "kcl test's params: unknown"
+}
+
+test_the_harness_calls_its_bridge_on_loopback = lambda {
+    _env = {e.name: e.value for e in _pod(_run({roomRef = "3kq7x2ma"})).containers[0].env}
+    assert _env.BRIDGE_URL == "http://127.0.0.1:8085", "agent-run's final read (disruption design §2)"
+    assert "BRIDGE_URL" not in {e.name: e.value for e in _pod(_run({})).containers[0].env}, "no room, no bridge"
 }
