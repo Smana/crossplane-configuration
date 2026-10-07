@@ -232,13 +232,16 @@ test_usage_never_goes_down = lambda {
     assert _higher.usage.tokens == 1950000
 }
 
-test_usage_keeps_the_cnp_until_the_sandbox_is_gone = lambda {
+test_usage_keeps_the_cnp_until_the_pod_is_gone = lambda {
     _u = _kind(_run({}), "Usage")
     assert len(_u) == 1
     assert _u[0].apiVersion == "protection.crossplane.io/v1beta1"
     assert _u[0].spec.replayDeletion == True
     assert _u[0].spec.of == {apiVersion = "cilium.io/v2", kind = "CiliumNetworkPolicy", resourceRef = {name = "xplane-run-7f3cq2xz"}}
-    assert _u[0].spec.by == {apiVersion = "agents.x-k8s.io/v1beta1", kind = "Sandbox", resourceRef = {name = "xplane-run-7f3cq2xz"}}
+
+    # The Sandbox has no finalizer and leaves the API while its pod still runs
+    # preStop and SIGTERM cleanup; keyed on it, the CNP went in the same second.
+    assert _u[0].spec.by == {apiVersion = "v1", kind = "Pod", resourceRef = {name = "xplane-run-7f3cq2xz"}}
 }
 
 test_cnp_is_default_deny_with_named_egress = lambda {
@@ -373,7 +376,8 @@ test_budget_exhausted_latches_over_a_later_manual_revocation = lambda {
 # Succeeded/Failed keep the Sandbox object, suspended (M2). ----
 test_succeeded_run_has_no_service_account_but_keeps_its_sandbox = lambda {
     _res = _render(_xr({}, {}, {}, {phase = "Succeeded"}), {}, _DXR)
-    assert [r.kind for r in _res] == ["ConfigMap", "CiliumNetworkPolicy", "Usage", "Sandbox", "AgentRun"]
+    # No Usage: a finished run's pod is gone, and Crossplane would log a failed lookup of it until GC.
+    assert [r.kind for r in _res] == ["ConfigMap", "CiliumNetworkPolicy", "Sandbox", "AgentRun"]
 }
 
 # ---- F3: startedAt/finishedAt survive a vanished Sandbox, same "last valid
@@ -421,10 +425,17 @@ test_readiness_follows_the_sandbox = lambda {
     assert _kind(_done, "Sandbox")[0].metadata.annotations["krm.kcl.dev/ready"] == "True"
 }
 
+# ---- S7: the openhands profile runs the repo-built harness image ----
+test_harness_profile_is_the_platform_image = lambda {
+    _c = _pod(_run({})).containers[0]
+    assert _c.image.startswith("ghcr.io/smana/agent-harness:v0.1.0@sha256:"), "the openhands profile is the released harness, pinned by digest (S7)"
+    assert _c.args == [], "agent-run starts agent-server on 127.0.0.1:8000 itself"
+    assert _c.lifecycle.preStop.exec.command == ["/usr/local/bin/git-credential-agent", "revoke"], "a deleted run revokes its GitHub token (SC-07)"
+}
+
 # ---- M6: agent-server stays on loopback, probed from inside the container ----
 test_harness_stays_on_loopback = lambda {
     _h = _pod(_run({})).containers[0]
-    assert _h.args == ["--port", "8000"], "no --host: agent-server keeps 127.0.0.1"
     assert "ports" not in _h
     _probes = [_h.startupProbe, _h.readinessProbe, _h.livenessProbe]
     assert not any p in _probes {
@@ -483,7 +494,7 @@ test_lost_status_write_does_not_rerun_the_task = lambda {
     _ok = _render(_xr({}, {}, {}, {}), _suspendedSandbox("Succeeded"), _DXR)
     assert _status(_ok).phase == "Succeeded"
     assert "reason" not in _status(_ok)
-    assert [r.kind for r in _ok] == ["ConfigMap", "CiliumNetworkPolicy", "Usage", "Sandbox", "AgentRun"], "no fresh ServiceAccount"
+    assert [r.kind for r in _ok] == ["ConfigMap", "CiliumNetworkPolicy", "Sandbox", "AgentRun"], "no fresh ServiceAccount, no Usage"
     assert _kind(_ok, "Sandbox")[0].spec.operatingMode == "Suspended"
     _ko = _render(_xr({}, {}, {}, {}), _suspendedSandbox("Failed"), _DXR)
     assert _status(_ko).phase == "Failed" and _status(_ko).reason == "PodFailed"
