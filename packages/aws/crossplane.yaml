@@ -36,8 +36,13 @@ spec:
     #   >=v0.7.0 -> v0.8.0  AgentRun: Crossplane never upgrades an installed
     #                       dependency on its own, so aws-0 would keep a core
     #                       without AgentRun otherwise.
+    #   >=v0.8.0 -> v0.8.1  the AgentRun Composition runs the platform harness
+    #                       image (CC-2). No XRD field changed, but a cluster
+    #                       on core v0.8.0 would keep the upstream agent-server
+    #                       image, which has no driver: a run would never work
+    #                       its task.
     - configuration: ghcr.io/smana/crossplane-configuration-core
-      version: ">=v0.8.0"
+      version: ">=v0.8.1"
     # NO function dependsOn — deliberately. See Smana/cloud-native-ref#1971 and
     # the longer note in packages/core/crossplane.yaml. Declaring a function
     # here while the consuming repo also pins it creates two Function resources
