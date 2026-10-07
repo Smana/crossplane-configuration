@@ -7,7 +7,7 @@ One gVisor-sandboxed coding-agent run (cloud-native-ref Agent Factory, SP1). Ren
 |---|---|---|
 | `ServiceAccount` (automount off, no RBAC) | the phase is terminal (any of the four) | observed |
 | `ConfigMap -task` (`task.md`, `rules.md`, `run.json`) | — | always |
-| `CiliumNetworkPolicy` (DNS L7 allowlist, the class's gateway port, octo-sts, FQDN profiles) | — | always |
+| `CiliumNetworkPolicy` (DNS L7 allowlist, the class's gateway port, octo-sts, the trace collector's POST /v1/traces, FQDN profiles) | — | always |
 | `Sandbox` (`agents.x-k8s.io/v1beta1`, RuntimeClass `gvisor`, identity-proxy native sidecar) | revoked | Sandbox `Ready`, or the phase is terminal |
 
 A `Succeeded` or `Failed` run's Sandbox is rendered `operatingMode: Suspended`: agent-sandbox deletes

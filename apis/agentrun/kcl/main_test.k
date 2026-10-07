@@ -510,3 +510,42 @@ test_stale_finished_annotation_on_a_running_sandbox_is_ignored = lambda {
     assert _phaseFor({}, {}, _runningSandboxWithStaleAnnotation("Succeeded")) == "Running"
     assert _phaseFor({}, {}, _runningSandboxWithStaleAnnotation("Failed")) == "Running"
 }
+
+# Observability plan O1, SO-4: the run's spans go to the collector's OTLP/HTTP traces
+# path and nowhere else. Not its gRPC port, not VictoriaTraces: the collector is what
+# strips content before anything is stored.
+test_traces_go_only_to_the_collector_traces_path = lambda {
+    _spec = _kind(_run({}), "CiliumNetworkPolicy")[0].spec
+    _obs = [e for e in _spec.egress if e.toEndpoints and e.toEndpoints[0].matchLabels["io.kubernetes.pod.namespace"] == "observability"]
+    assert len(_obs) == 1, "one egress rule into observability"
+    assert _obs[0].toEndpoints == [{
+        matchLabels = {"io.kubernetes.pod.namespace" = "observability", "app.kubernetes.io/name" = "agent-traces-collector"}
+    }]
+    assert _obs[0].toPorts == [{ports = [{port = "4318", protocol = "TCP"}], rules = {http = [{method = "POST", path = "/v1/traces"}]}}]
+    assert "agent-traces-collector.observability.svc.cluster.local" in [n.matchName for n in _spec.egress[0].toPorts[0].rules.dns]
+}
+
+# Observability plan O6, O19 (Task 0.1). A base URL, so lmnr appends /v1/traces for spans
+# and /v1/logs for anything else, which the run CNP drops. `openai` is the one instrument
+# that injects traceparent and honours LMNR_TRACE_CONTENT. The collector, not this env,
+# keeps content out of VictoriaTraces.
+test_harness_exports_traces_to_the_collector = lambda {
+    _env = {e.name: e.value for e in _pod(_run({})).containers[0].env}
+    assert _env.OTEL_EXPORTER_OTLP_ENDPOINT == "http://agent-traces-collector.observability.svc.cluster.local:4318"
+    assert _env.OTEL_EXPORTER_OTLP_PROTOCOL == "http/protobuf"
+    assert _env.LMNR_INSTRUMENTS == "openai"
+    assert _env.LMNR_TRACE_CONTENT == "false"
+    assert "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT" not in _env, "a traces URL would also carry lmnr's log records (O19)"
+}
+
+# Observability plan O21 (SP3 R46): the factory's task span reaches the harness as TRACEPARENT,
+# only when the annotation is a W3C traceparent. None, or a malformed one: a fresh trace.
+test_traceparent_annotation_reaches_the_harness = lambda {
+    _tp = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+    _envOf = lambda annotations: any -> any {
+        {e.name: e.value for e in _pod(_render(_xr({}, annotations, {}, {}), {}, _DXR)).containers[0].env}
+    }
+    assert _envOf({"agents.ogenki.io/traceparent" = _tp}).TRACEPARENT == _tp
+    assert "TRACEPARENT" not in _envOf({"agents.ogenki.io/traceparent" = "00-4bf9-00f0-01"}), "a malformed traceparent is never projected"
+    assert "TRACEPARENT" not in _envOf({}), "no annotation: the harness starts a fresh trace (task agent:run)"
+}
