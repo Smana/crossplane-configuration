@@ -271,9 +271,13 @@ test_cnp_is_default_deny_with_named_egress = lambda {
 
 test_room_ref_adds_broker_egress = lambda {
     _egress = _kind(_run({roomRef = "3kq7x2ma"}), "CiliumNetworkPolicy")[0].spec.egress
-    assert any e in _egress {
-        e.toEndpoints and e.toEndpoints[0].matchLabels["app.kubernetes.io/name"] == "room-broker" and e.toPorts[0].ports[0].port == "8443"
-    }
+    _broker = [e for e in _egress if e.toEndpoints and e.toEndpoints[0].matchLabels["app.kubernetes.io/name"] == "room-broker"]
+    assert _broker == [{
+        toEndpoints = [{
+            matchLabels = {"io.kubernetes.pod.namespace" = "agent-system", "app.kubernetes.io/name" = "room-broker"}
+        }]
+        toPorts = [{ports = [{port = "8443", protocol = "TCP"}]}]
+    }], "exactly the broker's bridge port, namespace pinned"
     _plain = _kind(_run({}), "CiliumNetworkPolicy")[0].spec.egress
     assert not any e in _plain {
         e.toEndpoints and e.toEndpoints[0].matchLabels["app.kubernetes.io/name"] == "room-broker"
@@ -548,4 +552,67 @@ test_traceparent_annotation_reaches_the_harness = lambda {
     assert _envOf({"agents.ogenki.io/traceparent" = _tp}).TRACEPARENT == _tp
     assert "TRACEPARENT" not in _envOf({"agents.ogenki.io/traceparent" = "00-4bf9-00f0-01"}), "a malformed traceparent is never projected"
     assert "TRACEPARENT" not in _envOf({}), "no annotation: the harness starts a fresh trace (task agent:run)"
+}
+
+test_room_bridge_only_with_a_room = lambda {
+    assert [c.name for c in _pod(_run({})).initContainers] == ["identity-proxy"]
+    _p = _pod(_run({roomRef = "3kq7x2ma"}))
+    assert [c.name for c in _p.initContainers] == ["identity-proxy", "room-bridge"], "the bridge starts after the proxy"
+    _b = _p.initContainers[1]
+    assert _b.restartPolicy == "Always", "a native sidecar lets the pod finish when the harness exits"
+    assert _b.image.startswith("ghcr.io/smana/room-bridge:") and "@sha256:" in _b.image, "pinned by digest"
+    _env = {e.name: e.value for e in _b.env}
+    assert _env.ROOM_ID == "3kq7x2ma" and _env.RUN_ID == "7f3cq2xz"
+    assert _env.CONVERSATION_ID == "0b3c6f0e-5d1a-4b8e-9f41-2a7c3e9d8b10", "the harness's conversation id"
+    assert _env.BROKER_URL == "https://room-broker.agent-system.svc.cluster.local:8443", "TLS on both clouds (GP-18)"
+    assert _env.BROKER_CA_FILE == "/etc/room-broker-ca/ca.crt"
+    assert _env.HARNESS_URL == "http://127.0.0.1:8000" and _env.ROOM_TOKEN_FILE == "/var/run/secrets/agents/room/token"
+    assert _env.EGRESS_PROFILES == "github"
+
+    # The kubelet signals the bridge only after the harness exits: its preStop revoke,
+    # then agent-run's SIGTERM cleanup (server.wait(10) and a second revoke), come first.
+    _preStop = 12
+    _harnessCleanup = 11
+    _healthDrain = 2
+    assert _preStop + _harnessCleanup + int(_env.FLUSH_GRACE.removesuffix("s")) + _healthDrain <= _p.terminationGracePeriodSeconds
+    assert _pod(_run({})).terminationGracePeriodSeconds == 30, "no room, no longer grace"
+    assert "GOMEMLIMIT" not in _env, "the binary sets the 48 MiB its buffer budget is sized for"
+    assert _b.ports == [{name = "bridge-health", containerPort = 8085, protocol = "TCP"}]
+    assert _b.resources == {requests = {cpu = "20m", memory = "32Mi"}, limits = {cpu = "100m", memory = "64Mi"}}
+    assert _b.startupProbe and _b.readinessProbe and _b.livenessProbe
+    assert _b.securityContext.readOnlyRootFilesystem == True and _b.securityContext.capabilities.drop == ["ALL"]
+    assert _b.securityContext.runAsNonRoot == True and _b.securityContext.allowPrivilegeEscalation == False and _b.securityContext.seccompProfile.type == "RuntimeDefault"
+}
+
+test_only_the_bridge_mounts_the_room_token = lambda {
+    _p = _pod(_run({roomRef = "3kq7x2ma"}))
+    assert sorted([v.name for v in _p.volumes if _projectsToken(v)]) == ["gateway-token", "room-token", "sts-token"]
+    _room = [v for v in _p.volumes if v.name == "room-token"][0].projected.sources[0].serviceAccountToken
+    assert _room.audience == "room-broker" and _room.expirationSeconds == 600
+    # Fail closed: an optional CA would only trade the FailedMount for a crash-loop.
+    _ca = [v for v in _p.volumes if v.name == "room-broker-ca"][0]
+    assert _ca == {name = "room-broker-ca", secret = {secretName = "room-broker-ca", defaultMode = 288, items = [{key = "ca.crt", path = "ca.crt"}]}}
+    _all = _p.initContainers + _p.containers
+    assert [c.name for c in _all if any m in c.volumeMounts {m.name in ["room-token", "room-broker-ca"]}] == ["room-bridge"]
+    _bridgeMounts = _p.initContainers[1].volumeMounts
+    assert {m.name: m.mountPath for m in _bridgeMounts} == {"room-token" = "/var/run/secrets/agents/room", "room-broker-ca" = "/etc/room-broker-ca"}
+    assert all m in _bridgeMounts {
+        m.readOnly == True
+    }
+    assert not any c in _p.containers {
+        any m in c.volumeMounts {
+            m.name in ["room-token", "gateway-token", "sts-token"]
+        }
+    }, "the harness never holds a token"
+    _plain = [v.name for v in _pod(_run({})).volumes]
+    assert "room-token" not in _plain and "room-broker-ca" not in _plain, "no room, no room volumes"
+}
+
+test_bridge_health_is_open_to_kubelet_only = lambda {
+    _ing = _kind(_run({roomRef = "3kq7x2ma"}), "CiliumNetworkPolicy")[0].spec.ingress
+    assert _ing == [
+        {fromEntities = ["host"], toPorts = [{ports = [{port = "9902", protocol = "TCP"}]}]}
+        {fromEntities = ["host"], toPorts = [{ports = [{port = "8085", protocol = "TCP"}]}]}
+    ], "kubelet only, nothing ever dials into a sandbox (C4, ruling AP)"
+    assert len(_kind(_run({}), "CiliumNetworkPolicy")[0].spec.ingress) == 1, "no room, no bridge port"
 }

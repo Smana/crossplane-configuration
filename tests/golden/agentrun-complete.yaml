@@ -120,6 +120,12 @@ spec:
     - ports:
       - port: "9902"
         protocol: TCP
+  - fromEntities:
+    - host
+    toPorts:
+    - ports:
+      - port: "8085"
+        protocol: TCP
 ---
 apiVersion: v1
 automountServiceAccountToken: false
@@ -349,6 +355,72 @@ spec:
           readOnly: true
         - mountPath: /tmp
           name: proxy-tmp
+      - env:
+        - name: RUN_ID
+          value: k2m4q7wa
+        - name: ROOM_ID
+          value: 3kq7x2ma
+        - name: CONVERSATION_ID
+          value: ""
+        - name: BROKER_URL
+          value: https://room-broker.agent-system.svc.cluster.local:8443
+        - name: BROKER_CA_FILE
+          value: /etc/room-broker-ca/ca.crt
+        - name: HARNESS_URL
+          value: http://127.0.0.1:8000
+        - name: ROOM_TOKEN_FILE
+          value: /var/run/secrets/agents/room/token
+        - name: EGRESS_PROFILES
+          value: github,pypi,golang
+        - name: FLUSH_GRACE
+          value: 12s
+        image: ghcr.io/smana/room-bridge:v0.0.1-pr6.e335dd32@sha256:814e637c9ad77c3f88779cbefe2f600f0ef8d5a7f954f4bc489f2467f14338d2
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /healthz
+            port: 8085
+          periodSeconds: 20
+        name: room-bridge
+        ports:
+        - containerPort: 8085
+          name: bridge-health
+          protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8085
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 100m
+            memory: 64Mi
+          requests:
+            cpu: 20m
+            memory: 32Mi
+        restartPolicy: Always
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        startupProbe:
+          failureThreshold: 30
+          httpGet:
+            path: /healthz
+            port: 8085
+          periodSeconds: 1
+        volumeMounts:
+        - mountPath: /var/run/secrets/agents/room
+          name: room-token
+          readOnly: true
+        - mountPath: /etc/room-broker-ca
+          name: room-broker-ca
+          readOnly: true
       restartPolicy: Never
       runtimeClassName: gvisor
       securityContext:
@@ -360,7 +432,7 @@ spec:
           type: RuntimeDefault
       serviceAccountName: xplane-run-k2m4q7wa
       shareProcessNamespace: false
-      terminationGracePeriodSeconds: 30
+      terminationGracePeriodSeconds: 45
       volumes:
       - name: gateway-token
         projected:
@@ -401,6 +473,21 @@ spec:
           medium: Memory
           sizeLimit: 1Mi
         name: git-cache
+      - name: room-token
+        projected:
+          defaultMode: 288
+          sources:
+          - serviceAccountToken:
+              audience: room-broker
+              expirationSeconds: 600
+              path: token
+      - name: room-broker-ca
+        secret:
+          defaultMode: 288
+          items:
+          - key: ca.crt
+            path: ca.crt
+          secretName: room-broker-ca
   service: false
 ---
 apiVersion: v1
