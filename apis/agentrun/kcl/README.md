@@ -29,7 +29,9 @@ the finished pod and never recreates it. The Sandbox also carries
 Why a `Failed` run ended is read from its pod, which the composition asks Crossplane for as a
 required resource (`runPod`, function-kcl v0.12.2): `Disrupted` when the pod is `Failed` with
 `DisruptionTarget=True` (a graceful node shutdown, an eviction, a preemption), `PodLost` when it was
-deleted or replaced before a final state was read, `PodFailed` otherwise. Crossplane serves the
+deleted or replaced before a final state was read, `PodFailed` otherwise. The harness container's
+own exit code comes first: 0 is `Succeeded` whatever the pod goes through afterwards, and any code
+but 0, 137 or 143 is `PodFailed`, even on a disrupted pod. Crossplane serves the
 pod from a cluster-wide informer, so its ServiceAccount needs `get`, `list` and `watch` on pods.
 
 ## API

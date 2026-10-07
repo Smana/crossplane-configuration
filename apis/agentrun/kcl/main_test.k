@@ -589,9 +589,9 @@ test_room_bridge_only_with_a_room = lambda {
     assert _env.HARNESS_URL == "http://127.0.0.1:8000" and _env.ROOM_TOKEN_FILE == "/var/run/secrets/agents/room/token"
     assert _env.EGRESS_PROFILES == "github"
 
-    # The kubelet signals the bridge only after the harness exits: agent-run's shutdown sequence,
-    # at most 15 s (disruption design §2), comes first. There is no preStop.
-    _harnessShutdown = 15
+    # The kubelet signals the bridge only after the harness exits: agent-run's shutdown sequence
+    # comes first, its five boxes (14 s) then its span's export (1 s). There is no preStop.
+    _harnessShutdown = 14 + 1
     _healthDrain = 2
     assert _harnessShutdown + int(_env.FLUSH_GRACE.removesuffix("s")) + _healthDrain <= _p.terminationGracePeriodSeconds
     assert _pod(_run({})).terminationGracePeriodSeconds == 30, "no room, no longer grace"
@@ -884,6 +884,60 @@ test_a_deleted_or_replaced_pod_ends_the_run_pod_lost = lambda {
     assert _endWith({phase = "Running"}, _appliedSandbox(True, _FINISHED_FAILED), []).reason == "PodLost", "deleted, gone"
     assert _endWith({phase = "Running"}, _appliedSandbox(True, _FINISHED_FAILED), [_heldPod]).reason == "PodLost", "already replaced"
     assert _endWith({phase = "Running"}, _appliedSandbox(True, _HELD), [_heldPod]).reason == "PodLost", "F12's gated replacement"
+}
+
+test_a_disruption_wins_over_a_deletion = lambda {
+    # The Eviction API and Kueue's preemption mark the pod DisruptionTarget, then delete it.
+    _evicted = {
+        metadata = {name = _NAME, namespace = "agents", deletionTimestamp = "2026-10-04T10:39:50Z"}
+        status = {phase = "Failed", conditions = [{type = "DisruptionTarget", status = "True", reason = "EvictionByEvictionAPI"}]}
+    }
+    _st = _endWith({phase = "Running"}, _appliedSandbox(True, _FINISHED_FAILED), [_evicted])
+    assert _st.phase == "Failed" and _st.reason == "Disrupted"
+}
+
+# C1: the harness's own exit code, read from the pod, outranks what its node did to the pod
+# afterwards. aws-0, 2026-10-06: a pod draining its sidecars after a Succeeded run was deleted, and
+# its gated replacement read PodLost: a finished task the factory would have resumed.
+_shutDownAfter = lambda exitCode: int -> any {
+    {
+        metadata = {name = _NAME, namespace = "agents"}
+        status = {
+            phase = "Failed"
+            conditions = [{type = "DisruptionTarget", status = "True", reason = "TerminationByKubelet"}]
+            containerStatuses = [{name = "harness", state.terminated = {exitCode = exitCode, finishedAt = "2026-10-04T10:38:00Z"}}]
+        }
+    }
+}
+_drainingAfter0 = {
+    metadata = {name = _NAME, namespace = "agents"}
+    status = {phase = "Running", containerStatuses = [{name = "harness", state.terminated = {exitCode = 0, finishedAt = "2026-10-04T10:38:00Z"}}]}
+}
+
+test_a_harness_that_exited_0_succeeds_whatever_its_pod_went_through = lambda {
+    # The reconcile Ready=False triggers at the harness's exit, while the sidecars drain.
+    _drain = _renderRun(_xr({}, {}, {}, {phase = "Running"}), _appliedSandbox(True, _DRAINING), _DXR, [_drainingAfter0])
+    _st = _status(_drain)
+    assert _st.phase == "Succeeded" and "reason" not in _st
+    assert _st.finishedAt == "2026-10-04T10:38:00Z", "when the harness exited"
+    assert _kind(_drain, "Sandbox")[0].metadata.annotations["agents.ogenki.io/finished-phase"] == "Succeeded", "M2 remembers it"
+    _shut = _endWith({phase = "Running"}, _appliedSandbox(True, _FINISHED_FAILED), [_shutDownAfter(0)])
+    assert _shut.phase == "Succeeded" and "reason" not in _shut, "a node shutdown during the drain"
+    # The F2 latch holds it once the pod is gone or replaced.
+    _gone = _endWith(_st, _appliedSandbox(True, _FINISHED_FAILED), [])
+    assert _gone.phase == "Succeeded" and "reason" not in _gone
+    _replaced = _endWith(_st, _appliedSandbox(True, _HELD), [_heldPod])
+    assert _replaced.phase == "Succeeded" and "reason" not in _replaced
+    _revoked = _status(_renderRun(_xr({}, {"agents.ogenki.io/revoked" = "manual"}, {}, {phase = "Running"}), _appliedSandbox(True, _DRAINING), _DXR, [_drainingAfter0]))
+    assert _revoked.phase == "Revoked", "a revocation still wins"
+}
+
+test_a_harness_that_failed_on_its_own_is_pod_failed_even_when_disrupted = lambda {
+    _st = _endWith({phase = "Running"}, _appliedSandbox(True, _FINISHED_FAILED), [_shutDownAfter(1)])
+    assert _st.phase == "Failed" and _st.reason == "PodFailed"
+    # 143 is the shutdown's own SIGTERM, 137 its SIGKILL: the disruption is why those ended.
+    assert _endWith({phase = "Running"}, _appliedSandbox(True, _FINISHED_FAILED), [_shutDownAfter(143)]).reason == "Disrupted"
+    assert _endWith({phase = "Running"}, _appliedSandbox(True, _FINISHED_FAILED), [_shutDownAfter(137)]).reason == "Disrupted"
 }
 
 test_a_disruption_that_was_abandoned_is_not_one = lambda {

@@ -67,10 +67,11 @@ _BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.0.1-pr24.465a2747@sha256:d4edc1694
 _BRIDGE_HEALTH_PORT = 8085
 
 # The kubelet signals the bridge only once the harness has exited, so a room
-# run's grace covers, in order: agent-run's shutdown sequence (at most 15 s,
-# disruption design §2), this flush (12 s) and the bridge's health drain (2 s):
-# 29 s of 45. A node shutdown caps the pod at the node's window (15 s on a GKE
-# preemptible VM), which agent-run's final read is for.
+# run's grace covers, in order: agent-run's shutdown sequence (disruption design
+# §2: five boxes summing to 14 s, then at most 1 s exporting its span), this
+# flush (12 s) and the bridge's health drain (2 s): 29 s of 45. A node shutdown
+# caps the pod at the node's window (15 s on a GKE preemptible VM), which
+# agent-run's final read is for.
 _BRIDGE_FLUSH_GRACE = "12s"
 _ROOM_GRACE_SECONDS = 45
 
@@ -149,23 +150,25 @@ _observed = lambda state: any, key: str -> any {
 # `lost` (F12) is a replacement pod held by _POD_LOST_GATE; `disrupted` is a pod the kubelet or
 # the control plane stopped for its node (disruption design §3), which fails the run even before
 # the Sandbox reports Finished.
+# `exited` is the harness's exit code (C1): 0 is Succeeded, below the revocations and above every
+# failure, so the latch holds a finished run whatever its pod goes through next.
 # Pending means never started: Running latches too, below every end. agent-sandbox
 # v1.0.3 reports Ready=False from the harness's exit until the pod is Succeeded
 # (the sidecars drain for up to 45 s), and a run read Pending then looks never
 # admitted to the factory, which deletes it.
-_phaseOf = lambda annotations: any, previous: str, sandbox: any, lost: bool, disrupted: bool -> str {
+_phaseOf = lambda annotations: any, previous: str, sandbox: any, lost: bool, disrupted: bool, exited: any -> str {
     _revoked = _get(annotations, "agents.ogenki.io/revoked") or ""
     _finished = _condition(sandbox, "Finished")
     _ready = _condition(sandbox, "Ready")
-    previous if previous in _TERMINAL_PHASES else "BudgetExhausted" if _revoked in _BUDGET_REASONS else "Revoked" if _revoked == "manual" else "Succeeded" if _finished?.status == "True" and _finished?.reason == "PodSucceeded" else "Failed" if disrupted else "Failed" if _finished?.status == "True" and _finished?.reason == "PodFailed" else "Failed" if lost else "Running" if _ready?.status == "True" or previous == "Running" else "Pending"
+    previous if previous in _TERMINAL_PHASES else "BudgetExhausted" if _revoked in _BUDGET_REASONS else "Revoked" if _revoked == "manual" else "Succeeded" if exited == 0 or _finished?.status == "True" and _finished?.reason == "PodSucceeded" else "Failed" if disrupted else "Failed" if _finished?.status == "True" and _finished?.reason == "PodFailed" else "Failed" if lost else "Running" if _ready?.status == "True" or previous == "Running" else "Pending"
 }
 
 # The reason latches with the phase (F2): once `previousPhase` is terminal,
 # `previousReason` is returned unchanged so a later revoke annotation can't
 # overwrite why a run actually stopped. Disruption design §3's precedence:
-# Disrupted, then PodLost, then PodFailed.
-_reasonOf = lambda phase: str, previousPhase: str, previousReason: any, revoked: any, lost: bool, disrupted: bool -> any {
-    previousReason if previousPhase in _TERMINAL_PHASES else "Disrupted" if phase == "Failed" and disrupted else "PodLost" if phase == "Failed" and lost else "PodFailed" if phase == "Failed" else revoked if revoked in _REVOKE_REASONS else None
+# Disrupted, then PodLost, then PodFailed; a harness that failed on its own (C1) is PodFailed first.
+_reasonOf = lambda phase: str, previousPhase: str, previousReason: any, revoked: any, lost: bool, disrupted: bool, crashed: bool -> any {
+    previousReason if previousPhase in _TERMINAL_PHASES else "PodFailed" if phase == "Failed" and crashed else "Disrupted" if phase == "Failed" and disrupted else "PodLost" if phase == "Failed" and lost else "PodFailed" if phase == "Failed" else revoked if revoked in _REVOKE_REASONS else None
 }
 
 # The Sandbox the composition last applied carries the gate once the run was
@@ -180,6 +183,15 @@ _gated = lambda sandbox: any -> bool {
 # A plain DELETE, a crash, an OOM kill or the deadline sets none.
 _disruptedPod = lambda pod: any -> bool {
     _get(pod?.status, "phase") == "Failed" and _condition(pod, "DisruptionTarget")?.status == "True"
+}
+
+# C1: how the harness container ended, from the run's pod; None while it runs. Its exit code
+# outranks the pod's phase: a node shutdown or a DELETE during the sidecars' drain fails a pod whose
+# run had finished. Left open: a pod gone before any reconcile read its terminated harness. Ready
+# turns False at the harness's exit and triggers one, so that window is small.
+_harnessEnd = lambda pod: any -> any {
+    _harnessEnds = [s.state.terminated for s in _get(pod?.status, "containerStatuses") or [] if s?.name == "harness" and s?.state?.terminated]
+    _harnessEnds[0] if _harnessEnds else None
 }
 
 # The pod the Sandbox reported Failed is no longer there to read: deleted (a deletionTimestamp, or
@@ -355,7 +367,11 @@ _renderRun = lambda _oxr: any, _ocds: any, _dxr: any, _pods: any -> [any] {
     _lost = _started and _scheduled?.status == "False"
     _runPod = _pods[0] if _pods else None
     _disrupted = _disruptedPod(_runPod)
-    _phase = _phaseOf(_ann, _prevPhase, _sandbox, _lost, _disrupted)
+    _exit = _harnessEnd(_runPod)
+    _exitCode = _exit?.exitCode
+    # 143 and 137 are the shutdown's own SIGTERM and SIGKILL: the disruption ended those.
+    _crashed = _exitCode != None and _exitCode not in [0, 137, 143]
+    _phase = _phaseOf(_ann, _prevPhase, _sandbox, _lost, _disrupted, _exitCode)
     _revoked = _get(_ann, "agents.ogenki.io/revoked")
     _validRevoke = _revoked in _REVOKE_REASONS
 
@@ -395,7 +411,7 @@ _renderRun = lambda _oxr: any, _ocds: any, _dxr: any, _pods: any -> [any] {
     # Succeeded one had none.
     _finishedWhy = _get(_sandbox?.metadata?.annotations, "agents.ogenki.io/finished-reason")
     _prevReason = ((_finishedWhy if _finishedWhy in ["PodFailed", "PodLost", "Disrupted"] else "PodFailed") if _finishedFor == "Failed" else None) if _recovered else _get(_previous, "reason")
-    _reason = _reasonOf(_phase, _prevPhase, _prevReason, _revoked, _lost or _podGone(_pods), _disrupted)
+    _reason = _reasonOf(_phase, _prevPhase, _prevReason, _revoked, _lost or _podGone(_pods), _disrupted, _crashed)
     _labels = {
         "agents.ogenki.io/run-id" = _runId
         "agents.ogenki.io/role" = _role
@@ -642,6 +658,8 @@ _renderRun = lambda _oxr: any, _ocds: any, _dxr: any, _pods: any -> [any] {
                 startedAt = _previous.startedAt
             if _finished?.lastTransitionTime:
                 finishedAt = _finished.lastTransitionTime
+            elif _exit?.finishedAt:
+                finishedAt = _exit.finishedAt
             elif _lost and _scheduled?.lastTransitionTime:
                 # The replacement pod appeared when the first one was lost.
                 finishedAt = _scheduled.lastTransitionTime
