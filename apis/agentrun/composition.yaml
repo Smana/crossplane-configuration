@@ -45,10 +45,9 @@ spec:
           # carries one, so bumping a digest is a release of this package.
           _HARNESS_PROFILES = {
               openhands = {
-                  # Pre-release pin for live testing on #2110; re-pin to
-                  # ghcr.io/smana/agent-harness:v0.1.0@sha256:... once #2110 merges and
-                  # CI publishes that tag.
-                  image = "ghcr.io/smana/agent-harness:v0.1.0-pr2110.29b5f228@sha256:3cc93e005a9e1c3b3c8608be5f4ce9ab48b3890196de0aeac59a5d6565708cd4"
+                  # Released by cloud-native-ref CI on main (#2110); the digest is the
+                  # multi-arch index.
+                  image = "ghcr.io/smana/agent-harness:v0.1.0@sha256:0ae6731ef83fb2d22460db7fbba43de87025edd36b0815b68f44bf4dd7ee790f"
                   port = 8000
                   # agent-run, the image's entrypoint, starts agent-server on
                   # 127.0.0.1:8000 itself. Its API is unauthenticated, so it stays off the
