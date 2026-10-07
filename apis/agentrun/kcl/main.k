@@ -197,6 +197,13 @@ _harnessEnd = lambda pod: any -> any {
     _harnessEnds[0] if _harnessEnds else None
 }
 
+# Whether the Sandbox controls the pod. A claim re-created under the same name could otherwise read
+# the previous Sandbox's pod, draining or disrupted, which agent-sandbox refuses to adopt.
+_ownedBy = lambda pod: any, sandbox: any -> bool {
+    _sandboxUid = _get(sandbox?.metadata, "uid")
+    _sandboxUid != None and len([o for o in _get(pod?.metadata, "ownerReferences") or [] if o?.uid == _sandboxUid]) > 0
+}
+
 # The pod the Sandbox reported Failed is no longer there to read: deleted (a deletionTimestamp, or
 # gone) or already replaced (a Pending pod of the same name). A pod that failed on its own stays
 # until this composition suspends the Sandbox. pods is _requiredPods' value.
@@ -368,7 +375,7 @@ _renderRun = lambda _oxr: any, _ocds: any, _dxr: any, _pods: any -> [any] {
     _started = _prevPhase == "Running" or _gated(_sandbox)
     _scheduled = _condition(_sandbox, "PodScheduled")
     _lost = _started and _scheduled?.status == "False"
-    _runPod = _pods[0] if _pods else None
+    _runPod = _pods[0] if _pods and _ownedBy(_pods[0], _sandbox) else None
     _disrupted = _disruptedPod(_runPod)
     _exit = _harnessEnd(_runPod)
     _exitCode = _exit?.exitCode
@@ -659,7 +666,11 @@ _renderRun = lambda _oxr: any, _ocds: any, _dxr: any, _pods: any -> [any] {
                 startedAt = _sandbox.metadata.creationTimestamp
             elif _previous?.startedAt:
                 startedAt = _previous.startedAt
-            if _finished?.lastTransitionTime:
+            if _prevPhase in _TERMINAL_PHASES and _previous?.finishedAt:
+                # Latched with the phase: a Succeeded run latched at the harness's exit gets the
+                # Sandbox's Finished only once the sidecars drained.
+                finishedAt = _previous.finishedAt
+            elif _finished?.lastTransitionTime:
                 finishedAt = _finished.lastTransitionTime
             elif _exit?.finishedAt:
                 finishedAt = _exit.finishedAt
