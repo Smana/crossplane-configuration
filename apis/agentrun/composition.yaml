@@ -83,9 +83,10 @@ spec:
 
           # SP2's room bridge (cloud-native-ref SP2 plan, ruling P6): a native sidecar after
           # identity-proxy, rendered only with roomRef, pinned by digest like the harness.
-          # Tracks agent-platform PR #24's pre-release (the final read, disruption design §2); moves to the
-          # release tag in the merge wave.
-          _BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.0.1-pr24.465a2747@sha256:d4edc16947539a65ed5abaab03a79daec359f1f54e8c69373194fb99f939959c"
+          # Pinned to agent-platform PR #22, an integration build that is never merged: the factory stack and
+          # room approvals with the final read (#24, disruption design §2), the loopback-only /admission (#31)
+          # and roomctl (#28). Moves to the release tag in the merge wave.
+          _BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.0.1-pr22.4a4abafc@sha256:c26840881e3bf0ecb92e7144c1ef9c041f3b336e074ade1f3ca3f9f78bde6574"
           _BRIDGE_HEALTH_PORT = 8085
 
           # The kubelet signals the bridge only once the harness has exited, so a room
