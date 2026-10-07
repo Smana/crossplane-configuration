@@ -29,6 +29,90 @@ _cloud = envConfig?.cloud
 # secrets actually in that project is dash-separated.
 _secretSep = "-" if _cloud == "gcp" else "/"
 
+# Role credentials. `store` reads the seeded ClusterSecretStore key and requires
+# every role to own a database; `generated` creates each password once in-cluster
+# (ESO Password generator, CreatedOnce), so nothing is seeded and a login role can
+# own nothing -- an append-only application role, for instance.
+_generated = (oxr.spec?.credentials?.source or "store") == "generated"
+
+_ownedDb = lambda role: str -> str {
+    _dbs = [db.name for db in oxr.spec.databases or [] if db.owner == role]
+    _dbs[0] if _dbs else ""
+}
+
+_roleSecretName = lambda role: str -> str {
+    _db = _ownedDb(role)
+    oxr.metadata.name + "-cnpg-" + _db if _db else oxr.metadata.name + "-cnpg-role-" + role.replace("_", "-")
+}
+
+_rolesOwningNothing = [r.name for r in oxr.spec.roles or [] if not _ownedDb(r.name)]
+
+assert _generated or not _rolesOwningNothing, "SQLInstance {}/{}: roles {} own no database, which needs spec.credentials.source: generated".format(oxr.metadata.namespace, oxr.metadata.name, _rolesOwningNothing)
+
+# The superuser password has no generator here: it only ever comes from the
+# ClusterSecretStore, the very store generated mode exists to avoid.
+assert not (_generated and oxr.spec.createSuperuser), "SQLInstance {}/{}: generated mode has no superuser; createSuperuser needs spec.credentials.source: store (its secret comes from the ClusterSecretStore)".format(oxr.metadata.namespace, oxr.metadata.name)
+
+# Secret names are derived, so distinct inputs can collide: role `foo` (owning
+# nothing) and database `role-foo`, or roles `a_b` and `a-b`. Two ExternalSecrets
+# with one name would fight over a single Secret.
+_secretNames = [oxr.metadata.name + "-cnpg-" + db.name for db in oxr.spec.databases or []] + [_roleSecretName(r) for r in _rolesOwningNothing] + ([oxr.metadata.name + "-cnpg-superuser"] if oxr.spec.createSuperuser else [])
+_duplicateSecrets = [n for i, n in _secretNames if n in _secretNames[:i:]]
+
+assert not _duplicateSecrets, "SQLInstance {}/{}: duplicate secret names {}: rename a role or database".format(oxr.metadata.namespace, oxr.metadata.name, _duplicateSecrets)
+
+_rwHost = oxr.metadata.name + "-cnpg-cluster-rw." + oxr.metadata.namespace + ".svc:5432"
+
+_passwordGenerator = lambda name: str -> any {
+    {
+        apiVersion = "generators.external-secrets.io/v1alpha1"
+        kind = "Password"
+        metadata = {
+            name = name
+            namespace = oxr.metadata.namespace
+            annotations = {
+                "krm.kcl.dev/composition-resource-name" = name + "-password"
+                "krm.kcl.dev/ready" = "True"
+            }
+        }
+        # Alphanumeric: it lands in a connection URI and CNPG's role spec.
+        spec = {length = 32, symbols = 0, noUpper = False, allowRepeat = True}
+    }
+}
+
+# A generated credential: one password, created once and never rotated (rotating
+# would lock the running cluster out of its own role).
+_generatedSecret = lambda name: str, user: str, db: str -> any {
+    {
+        apiVersion = "external-secrets.io/v1"
+        kind = "ExternalSecret"
+        metadata = {
+            name = name
+            namespace = oxr.metadata.namespace
+            annotations = {"krm.kcl.dev/composition-resource-name" = name + "-externalsecret"}
+        }
+        spec = {
+            refreshPolicy = "CreatedOnce"
+            dataFrom = [{
+                sourceRef.generatorRef = {apiVersion = "generators.external-secrets.io/v1alpha1", kind = "Password", name = name}
+            }]
+            target = {
+                creationPolicy = "Owner"
+                deletionPolicy = "Retain"
+                name = name
+                template = {
+                    engineVersion = "v2"
+                    data = {
+                        username = user
+                        password = "{{ .password }}"
+                        uri = "postgresql://" + user + ":{{ .password | urlquery }}@" + _rwHost + "/" + db
+                    }
+                }
+            }
+        }
+    }
+}
+
 _region = envConfig.region
 
 _metadata = lambda suffix: str -> any {
@@ -399,8 +483,8 @@ _items += [
                     superuser = role.superuser
                     inRoles = role.inRoles
                     passwordSecret = {
-                        # Use the database secret (same credentials, named after database not role)
-                        name = oxr.metadata.name + "-cnpg-" + [db.name for db in oxr.spec.databases if db.owner == role.name][0]
+                        # The owner's database secret, or (generated mode) the role's own.
+                        name = _roleSecretName(role.name)
                     }
                 } for role in oxr.spec.roles]
         }
@@ -461,7 +545,7 @@ if oxr.spec.objectStoreRecovery:
 
 # Create ExternalSecrets for database owners (used by initdb, roles, and applications)
 # Each database gets a secret named after the database (not the role) to support CNPG initdb bootstrap
-if oxr.spec.databases:
+if oxr.spec.databases and not _generated:
     _items += [{
         apiVersion = "external-secrets.io/v1"
         kind = "ExternalSecret"
@@ -516,6 +600,13 @@ if oxr.spec.databases:
             }
         }
     } for db in oxr.spec.databases]
+
+if _generated:
+    _firstDb = (oxr.spec.databases or [{name = "postgres"}])[0].name
+    _items += [_passwordGenerator(oxr.metadata.name + "-cnpg-" + db.name) for db in oxr.spec.databases or []]
+    _items += [_generatedSecret(oxr.metadata.name + "-cnpg-" + db.name, db.owner, db.name) for db in oxr.spec.databases or []]
+    _items += [_passwordGenerator(_roleSecretName(r)) for r in _rolesOwningNothing]
+    _items += [_generatedSecret(_roleSecretName(r), r, _firstDb) for r in _rolesOwningNothing]
 
 # Create databases
 if oxr.spec.databases:

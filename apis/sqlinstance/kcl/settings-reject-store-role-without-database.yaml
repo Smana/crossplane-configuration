@@ -1,0 +1,28 @@
+# expect: own no database, which needs spec.credentials.source: generated
+# Store mode reads cnpg/<xr>/roles/<owner>, so a role that owns no database has
+# no secret to read.
+kcl_options:
+  - key: params
+    value:
+      ctx:
+        "apiextensions.crossplane.io/environment":
+          "clusterName": "mycluster-0"
+          region: "eu-west-3"
+          cloud: "aws"
+      oxr:
+        metadata:
+          name: "xplane-rooms"
+          namespace: "agent-system"
+          uid: "b2c3d4e5-6f70-8901-bcde-f12345678901"
+        spec:
+          instances: 1
+          size: "small"
+          databases:
+            - name: rooms
+              owner: rooms_owner
+          roles:
+            - name: rooms_owner
+              superuser: false
+            - name: rooms_broker
+              superuser: false
+      ocds: {}

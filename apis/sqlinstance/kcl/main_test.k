@@ -34,7 +34,8 @@ test_databases_resources = lambda {
         dbResources = [r for r in items if r.kind == "Database" and r.apiVersion == "postgresql.cnpg.io/v1"]
         # One ExternalSecret per database (+ superuser if enabled)
         _superuserSecrets = 1 if _oxr.spec.createSuperuser else 0
-        assert len(extSecrets) == len(dbs) + _superuserSecrets, "expected {} ExternalSecrets ({}db + {}superuser), got {}".format(len(dbs) + _superuserSecrets, len(dbs), _superuserSecrets, len(extSecrets))
+        _nonOwners = len([r for r in _oxr.spec.roles or [] if not [d for d in dbs if d.owner == r.name]]) if (_oxr.spec?.credentials?.source or "store") == "generated" else 0
+        assert len(extSecrets) == len(dbs) + _superuserSecrets + _nonOwners, "expected {} ExternalSecrets, got {}".format(len(dbs) + _superuserSecrets + _nonOwners, len(extSecrets))
         assert len(dbResources) == len(dbs), "expected {} Database resources, got {}".format(len(dbs), len(dbResources))
 
     assert True
@@ -47,7 +48,7 @@ test_db_connection_secret_uri = lambda {
     _oxr = option("params").oxr
     dbs = _oxr.spec.databases or []
     if len(dbs) > 0:
-        dbSecrets = [r for r in items if r.kind == "ExternalSecret" and "superuser" not in r.metadata.name]
+        dbSecrets = [r for r in items if r.kind == "ExternalSecret" and "superuser" not in r.metadata.name and not (_isGenerated() and "-cnpg-role-" in r.metadata.name)]
         assert len(dbSecrets) == len(dbs), "expected {} db ExternalSecrets, got {}".format(len(dbs), len(dbSecrets))
         withUri = [s for s in dbSecrets if s.spec?.target?.template?.data?.uri]
         assert len(withUri) == len(dbs), "every db ExternalSecret must template a uri key, got {} of {}".format(len(withUri), len(dbs))
@@ -196,6 +197,61 @@ test_recovery_server_name_unchanged = lambda {
         _ecs = [e for e in clusters[0].spec.externalClusters if e.name == _oxr.spec.objectStoreRecovery.path]
         assert len(_ecs) == 1, "expected exactly 1 externalCluster for the seed"
         assert _ecs[0].plugin.parameters.serverName == _oxr.spec.objectStoreRecovery.path, "recovery must keep reading the dated seed path verbatim"
+
+    assert True
+}
+
+# ---- Generated credentials (spec.credentials.source: generated) ----
+_isGenerated = lambda -> bool {
+    (option("params").oxr.spec?.credentials?.source or "store") == "generated"
+}
+
+test_generated_mode_reads_no_secret_store = lambda {
+    if _isGenerated():
+        _es = [r for r in items if r.kind == "ExternalSecret"]
+        assert _es, "generated mode still renders ExternalSecrets"
+        assert all e in _es {
+            "secretStoreRef" not in e.spec and e.spec.refreshPolicy == "CreatedOnce" and e.spec.dataFrom[0].sourceRef.generatorRef.kind == "Password"
+        }, "no ClusterSecretStore read, and a password generated once"
+
+    assert True
+}
+
+test_generated_mode_renders_one_generator_per_secret = lambda {
+    if _isGenerated():
+        _gens = sorted([r.metadata.name for r in items if r.kind == "Password"])
+        _es = sorted([r.metadata.name for r in items if r.kind == "ExternalSecret"])
+        assert _gens == _es, "each ExternalSecret reads its own generator: {} vs {}".format(_gens, _es)
+        _roleSecrets = ["xplane-rooms-cnpg-role-rooms-broker", "xplane-rooms-cnpg-role-rooms-retention"]
+        _want = _roleSecrets + ["xplane-rooms-cnpg-rooms"] if option("params").oxr.spec.databases else _roleSecrets
+        assert _es == _want, "expected {}, got {}".format(_want, _es)
+
+    assert True
+}
+
+test_every_managed_role_has_a_secret = lambda {
+    _clusters = [r for r in items if r.kind == "Cluster"]
+    _secrets = [r.metadata.name for r in items if r.kind == "ExternalSecret"]
+    if _isGenerated():
+        _roles = _clusters[0].spec.managed.roles
+        assert all r in _roles {
+            r.passwordSecret.name in _secrets
+        }, "a managed role must point at a secret this composition renders"
+        _broker = [r for r in _roles if r.name == "rooms_broker"][0]
+        assert _broker.passwordSecret.name == "xplane-rooms-cnpg-role-rooms-broker"
+
+    assert True
+}
+
+# With no database at all (settings-generated-nodb.yaml), a role's uri falls
+# back to `postgres`, the database every cluster has.
+test_non_owner_role_uri_targets_the_first_database = lambda {
+    if _isGenerated():
+        _dbs = option("params").oxr.spec.databases
+        _db = _dbs[0].name if _dbs else "postgres"
+        _es = [r for r in items if r.kind == "ExternalSecret" and r.metadata.name == "xplane-rooms-cnpg-role-rooms-broker"][0]
+        assert _es.spec.target.template.data.username == "rooms_broker"
+        assert _es.spec.target.template.data.uri.endswith("@xplane-rooms-cnpg-cluster-rw.agent-system.svc:5432/" + _db), "expected the uri to end in /{}, got {}".format(_db, _es.spec.target.template.data.uri)
 
     assert True
 }
