@@ -430,13 +430,9 @@ test_readiness_follows_the_sandbox = lambda {
 }
 
 # ---- S7: the openhands profile runs the repo-built harness image ----
-# Pinned to the #2110 pre-release tag for live testing; re-pin to the plain
-# "ghcr.io/smana/agent-harness:v0.1.0@sha256:" prefix once #2110 merges and CI
-# publishes that tag.
 test_harness_profile_is_the_platform_image = lambda {
     _c = _pod(_run({})).containers[0]
-    assert _c.image.startswith("ghcr.io/smana/agent-harness:"), "the openhands profile is the repo-built harness (S7)"
-    assert "@sha256:" in _c.image, "pinned by digest"
+    assert _c.image.startswith("ghcr.io/smana/agent-harness:v0.1.0@sha256:"), "the openhands profile is the released harness, pinned by digest (S7)"
     assert _c.args == [], "agent-run starts agent-server on 127.0.0.1:8000 itself"
     assert _c.lifecycle.preStop.exec.command == ["/usr/local/bin/git-credential-agent", "revoke"], "a deleted run revokes its GitHub token (SC-07)"
 }
