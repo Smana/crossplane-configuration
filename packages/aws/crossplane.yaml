@@ -41,8 +41,13 @@ spec:
     #                       on core v0.8.0 would keep the upstream agent-server
     #                       image, which has no driver: a run would never work
     #                       its task.
+    #   >=v0.8.1 -> v0.9.0  SQLInstance `credentials.source`: the SQLInstance
+    #                       Composition reads it, and an older core XRD prunes
+    #                       it, so a `generated` claim would silently fall back
+    #                       to the store. Core v0.9.0 also carries the AgentRun
+    #                       rooms work, which a cluster gets only with this floor.
     - configuration: ghcr.io/smana/crossplane-configuration-core
-      version: ">=v0.8.1"
+      version: ">=v0.9.0"
     # NO function dependsOn — deliberately. See Smana/cloud-native-ref#1971 and
     # the longer note in packages/core/crossplane.yaml. Declaring a function
     # here while the consuming repo also pins it creates two Function resources

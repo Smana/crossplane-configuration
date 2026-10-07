@@ -27,12 +27,14 @@ spec:
     # and `observability.metrics.scrape`, which this package's App Composition
     # reads and only core v0.6.1's/v0.7.0's XRD declares, then to v0.8.0 with
     # the aws floor in the same release (AgentRun), then to v0.8.1 for the
-    # AgentRun Composition's harness image (CC-2) -- the two floors move
-    # together. A stale floor here fails silently: core is left at whatever
-    # already satisfied it, and every claim is rejected on dry-run for a field
-    # the cluster's XRD has never heard of.
+    # AgentRun Composition's harness image (CC-2), then to v0.9.0 for the
+    # SQLInstance `credentials.source` this package's SQLInstance Composition
+    # reads -- the two floors move together. A stale floor here fails silently:
+    # core is left at whatever already satisfied it, and every claim is rejected
+    # on dry-run for a field the cluster's XRD has never heard of (or, for a
+    # field with a default, quietly pruned).
     - configuration: ghcr.io/smana/crossplane-configuration-core
-      version: ">=v0.8.1"
+      version: ">=v0.9.0"
     # The function dependsOn entries that used to live here are removed
     # deliberately. See Smana/cloud-native-ref#1971 and the longer note in
     # packages/core/crossplane.yaml.
