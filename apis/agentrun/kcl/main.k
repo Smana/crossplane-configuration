@@ -26,9 +26,10 @@ ocds = option("params").ocds
 # carries one, so bumping a digest is a release of this package.
 _HARNESS_PROFILES = {
     openhands = {
-        # Pre-release pin (cloud-native-ref #2215, disruption design §2): H-S3's footer, O-1's root span and
-        # the SIGTERM sequence (pause, checkpoint, final read, stop, revoke). Re-pin to v0.3.0 in the merge wave.
-        image = "ghcr.io/smana/agent-harness:v0.3.0-pr2215.9c4cd62c@sha256:9893ec2d97340d5d80704eee41275da018e07eb70c514211efc61ff8fdcfa8c8"
+        # Pre-release pin (cloud-native-ref #2215, disruption design §2): H-S3's footer, O-1's root span,
+        # the SIGTERM sequence (pause, checkpoint, final read, stop, revoke) and its review fixes (a finished
+        # run keeps its exit code, the checkpoint guard, hard boxes). Re-pin to v0.3.0 in the merge wave.
+        image = "ghcr.io/smana/agent-harness:v0.3.0-pr2215.3aea4800@sha256:66a73783388bc442f066e552b0acd2195154711661f7ec5e6daaa2668f40ea19"
         port = 8000
         # agent-run, the image's entrypoint, starts agent-server on
         # 127.0.0.1:8000 itself. Its API is unauthenticated, so it stays off the
