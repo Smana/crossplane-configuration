@@ -230,7 +230,7 @@ spec:
           value: https://github.com/Smana/cloud-native-ref/pull/2090
         - name: BRIDGE_URL
           value: http://127.0.0.1:8085
-        image: ghcr.io/smana/agent-harness:v0.2.0-pr2142.10c062c2@sha256:78120d8dc5b519619968bb811ce63c7e67c9fa6de2755c3a31ff213c2bcce977
+        image: ghcr.io/smana/agent-harness:v0.3.0-pr2215.9c4cd62c@sha256:9893ec2d97340d5d80704eee41275da018e07eb70c514211efc61ff8fdcfa8c8
         livenessProbe:
           exec:
             command:
