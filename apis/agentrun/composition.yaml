@@ -1,0 +1,500 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: xagentruns.cloud.ogenki.io
+  labels:
+    provider: kubernetes
+spec:
+  compositeTypeRef:
+    apiVersion: cloud.ogenki.io/v1alpha1
+    kind: AgentRun
+  mode: Pipeline
+  pipeline:
+  - step: agentrun
+    functionRef:
+      name: function-kcl
+    input:
+      apiVersion: krm.kcl.dev/v1alpha1
+      kind: KCLRun
+      spec:
+        target: Default
+        source: |
+          # AgentRun composition: one sandboxed coding-agent run (SP1 of the Agent Factory
+          # programme, cloud-native-ref docs/superpowers/specs/2026-09-23-agent-runtime-identity-design.md).
+          #
+          # Renders, all named xplane-run-<runId>[-suffix] in the claim's namespace:
+          #   ServiceAccount       no RBAC anywhere, automount off      (not once terminal)
+          #   ConfigMap -task      task, platform rules, run metadata
+          #   CiliumNetworkPolicy  default-deny, class-scoped gateway port, FQDN profiles
+          #   Sandbox              agents.x-k8s.io/v1beta1 under gVisor (not when revoked;
+          #                        Suspended once Succeeded/Failed)
+          # and patches the XR status.
+          #
+          # Status has ONE writer, this composition (C3). Controllers write annotations;
+          # they are validated here before anything reaches status.
+          #
+          # Conditional resources are single-element lists joined at the end. Nothing is
+          # mutated after creation (function-kcl #285).
+          import json
+          import regex
+
+          oxr = option("params").oxr
+          ocds = option("params").ocds
+
+          # The only place a harness profile becomes an image (S7): the claim never
+          # carries one, so bumping a digest is a release of this package.
+          _HARNESS_PROFILES = {
+              openhands = {
+                  image = "ghcr.io/openhands/agent-server:1.49.5-python@sha256:1e7b08ffef732d6520e0b0048931b6ef425a7742c5fb80a82c9397a285c669eb"
+                  port = 8000
+                  # No --host: agent-server keeps its default 127.0.0.1. Its API is
+                  # unauthenticated, so it stays off the pod network — the node included
+                  # — and the probes run inside the container instead (_localGet).
+                  args = ["--port", "8000"]
+              }
+          }
+
+          # The openhands profile above carries no preStop key: the pinned upstream
+          # agent-server image doesn't ship /usr/local/bin/git-credential-agent.
+          # CC-2's agent-harness profile (phase 6) bakes the binary in and sets this
+          # key; setting it here against upstream would log FailedPreStopHook on
+          # every pod termination.
+          _IDENTITY_PROXY_IMAGE = "docker.io/envoyproxy/envoy:distroless-v1.39.1@sha256:eb2c01c13125d1629637cb4e4cce7207009fb7cc2c8027f9742758549d15b6f4"
+
+          # spec.size: CPU request -> limit, 2 GiB per CPU, scratch for /workspace.
+          _SIZES = {
+              small = {cpu = ["1", "2"], memory = ["2Gi", "4Gi"], scratch = "10Gi"}
+              medium = {cpu = ["2", "4"], memory = ["4Gi", "8Gi"], scratch = "20Gi"}
+              large = {cpu = ["4", "8"], memory = ["8Gi", "16Gi"], scratch = "40Gi"}
+          }
+
+          _EGRESS_PROFILES = {
+              github = ["github.com", "api.github.com", "codeload.github.com", "objects.githubusercontent.com", "raw.githubusercontent.com"]
+              pypi = ["pypi.org", "files.pythonhosted.org"]
+              npm = ["registry.npmjs.org"]
+              golang = ["proxy.golang.org", "sum.golang.org"]
+              crates = ["index.crates.io", "static.crates.io"]
+          }
+
+          # Fully qualified, so ndots:1 sends them to kube-dns as-is and the L7 DNS rule
+          # can answer exactly these names (Q4).
+          _ROUTER_FQDN = "agent-router.envoy-gateway-system.svc.cluster.local"
+          _BROKER_FQDN = "room-broker.agent-system.svc.cluster.local"
+
+          # One agent-router listener per data class (S6): the port IS the class.
+          _ROUTER_PORT = {public = 8080, internal = 8081}
+
+          # octo-sts is reached only through agent-router's sts listener, whose JWT check is
+          # pinned to this cluster's issuer: octo-sts's own issuer pattern would also accept
+          # a token minted by any other EKS cluster in the region (owner decision 2026-09-26).
+          _STS_PORT = 8082
+          _PROXY_PORT = {public = 4000, internal = 4002}
+
+          # The identity-proxy's dedicated health listener (Envoy's health_check filter,
+          # serving /ready). Its admin port 9901 is NOT on the pod network: the harness
+          # shares the network namespace and could POST /logging?level=debug to make
+          # Envoy log the Authorization headers it injects (S5). Phase 2's bootstrap
+          # binds admin to a unix socket in proxy-tmp, which the harness does not mount.
+          _PROXY_HEALTH_PORT = 9902
+
+          # An exec probe for a server listening on 127.0.0.1, which kubelet — probing
+          # the pod IP — cannot reach. urlopen raises on a refused connection or an HTTP
+          # error, so python3 exits non-zero.
+          _localGet = lambda port: int, path: str -> [str] {
+              ["python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:{}{}', timeout=2)".format(port, path)]
+          }
+
+          _BUDGET_REASONS = ["budget-run", "budget-principal", "budget-fleet"]
+          _REVOKE_REASONS = _BUDGET_REASONS + ["manual"]
+          _TERMINAL_PHASES = ["Succeeded", "Failed", "BudgetExhausted", "Revoked"]
+
+          _CONTAINER_SECURITY = {
+              allowPrivilegeEscalation = False
+              readOnlyRootFilesystem = True
+              runAsNonRoot = True
+              capabilities = {drop = ["ALL"]}
+              seccompProfile = {type = "RuntimeDefault"}
+          }
+
+          _get = lambda d: any, k: str -> any {
+              d[k] if d and k in d else None
+          }
+
+          _condition = lambda obj: any, ctype: str -> any {
+              _matches = [c for c in obj?.status?.conditions or [] if c?.type == ctype]
+              _matches[0] if _matches else None
+          }
+
+          _observed = lambda state: any, key: str -> any {
+              state[key]?.Resource if state and key in state else None
+          }
+
+          # Phase, top-down (design §2). A terminal phase (Succeeded/Failed/BudgetExhausted/
+          # Revoked) always latches: once `previous` is one of these, it is returned
+          # unchanged no matter what the annotations or the observed Sandbox say this
+          # reconcile (F2) — so removing an annotation never resurrects a run, and a
+          # revoke arriving after completion never regresses a finished one either.
+          _phaseOf = lambda annotations: any, previous: str, sandbox: any -> str {
+              _revoked = _get(annotations, "agents.ogenki.io/revoked") or ""
+              _finished = _condition(sandbox, "Finished")
+              _ready = _condition(sandbox, "Ready")
+              previous if previous in _TERMINAL_PHASES else "BudgetExhausted" if _revoked in _BUDGET_REASONS else "Revoked" if _revoked == "manual" else "Succeeded" if _finished?.status == "True" and _finished?.reason == "PodSucceeded" else "Failed" if _finished?.status == "True" and _finished?.reason == "PodFailed" else "Running" if _ready?.status == "True" else "Pending"
+          }
+
+          # The reason latches with the phase (F2): once `previousPhase` is terminal,
+          # `previousReason` is returned unchanged so a later revoke annotation can't
+          # overwrite why a run actually stopped.
+          _reasonOf = lambda phase: str, previousPhase: str, previousReason: any, revoked: any -> any {
+              previousReason if previousPhase in _TERMINAL_PHASES else "PodFailed" if phase == "Failed" else revoked if revoked in _REVOKE_REASONS else None
+          }
+
+          # A malformed annotation is never projected; the last valid value stays. Nor is a
+          # smaller one: the meter's counter resets when a data-plane pod restarts, and a
+          # reset must not refund the run's budget.
+          _usageTokens = lambda annotations: any, previous: any -> any {
+              _v = _get(annotations, "agents.ogenki.io/usage-tokens")
+              _n = int(_v) if _v and regex.match(_v, "^[0-9]{1,12}$") else None
+              previous if _n == None or (previous != None and _n < previous) else _n
+          }
+
+          _pullRequest = lambda annotations: any, repository: str, previous: any -> any {
+              _v = _get(annotations, "agents.ogenki.io/pull-request")
+              _v if _v and regex.match(_v, "^https://github\\.com/" + repository.replace(".", "\\.") + "/pull/[0-9]+$") else previous
+          }
+
+          # A read-only role never commits, so it gets no trailer rule (F6) — the two
+          # branches are numbered independently and each is a complete, gap-free list.
+          _rulesFor = lambda role: str, runId: str, repository: str, branch: str, baseRef: str -> str {
+              _intro = "Platform rules for run {} ({}) on {}. The platform enforces each of them independently of you.\n1. Work in /workspace/repo, cloned from {} at {}.\n".format(runId, role, repository, repository, baseRef)
+              _write = "2. Push only to {}. Never push to any other branch, and never merge.\n3. Open at most one pull request, from {} into {}. If it already exists, update it.\n4. Every commit carries the trailer \"Agent-Run: {}\". The commit hook adds it.\n5. Never modify .github/workflows/ or .github/chainguard/.\n6. A 429 from the model gateway means the budget is spent: stop and exit.\n".format(branch, branch, baseRef, runId)
+              _read = "2. Your repository access is read-only. Do not push. Your final message is your report.\n3. Never modify .github/workflows/ or .github/chainguard/.\n4. A 429 from the model gateway means the budget is spent: stop and exit.\n"
+              _intro + (_write if role == "implementer" else _read)
+          }
+
+          _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
+              _name = _oxr.metadata.name
+              _ns = _oxr.metadata.namespace
+              assert _ns == "agents", "an AgentRun must live in namespace agents, got {}".format(_ns)
+              assert regex.match(_name, "^xplane-run-[a-z2-7]{8}$"), "an AgentRun name must match ^xplane-run-[a-z2-7]{8}$, got " + _name
+              _runId = _name[11::]
+              _spec = _oxr.spec
+              _role = _spec.role
+              _class = _spec.dataClass
+              _repo = _spec.repository
+              _baseRef = _spec.baseRef or "main"
+              _branch = _spec.branch or "agent/" + _runId
+              _model = _spec.model or "agent-default"
+              _size = _SIZES[_spec.size or "small"]
+              _profile = _HARNESS_PROFILES[_spec.harness or "openhands"]
+              _maxMinutes = _spec.budget?.maxMinutes or 120
+
+              # R2 (SP1 spike Q2): under gVisor, kubelet's host-side token rotation raises no inotify,
+              # so the proxy's watched_directory never reloads. Each token outlives the run instead,
+              # which widens T8 to the deadline. 600 s is the apiserver's floor.
+              _tokenTTL = max([600, _maxMinutes * 60])
+              _profiles = ["github"] + (_spec.egress?.profiles or [])
+              _fqdns = [f for p in _profiles for f in _EGRESS_PROFILES[p]]
+              _roomRef = _spec.roomRef
+              _ann = _oxr.metadata?.annotations or {}
+              _taskLabel = _get(_oxr.metadata?.labels or {}, "agents.ogenki.io/task")
+              _sandbox = _observed(_ocds, _name + "-sandbox")
+              _previous = _oxr.status or {}
+
+              # M2: a finished run's Sandbox records the phase it was suspended for.
+              # Crossplane applies composed resources BEFORE the XR status, and suspending
+              # deletes the pod and with it the Finished condition. If that status write
+              # is lost, this annotation is the only memory that the run finished; without
+              # it the phase falls back to Pending, un-suspends the Sandbox and re-runs
+              # the task. Gated on operatingMode == "Suspended": a stray or stale
+              # finished-phase annotation on a Sandbox that is still Running must never
+              # short-circuit an in-progress run to terminal.
+              _statusPhase = _previous?.phase or ""
+              _finishedFor = _get(_sandbox?.metadata?.annotations, "agents.ogenki.io/finished-phase")
+              _recovered = _statusPhase not in _TERMINAL_PHASES and _finishedFor in ["Succeeded", "Failed"] and _sandbox?.spec?.operatingMode == "Suspended"
+              _prevPhase = _finishedFor if _recovered else _statusPhase
+              _phase = _phaseOf(_ann, _prevPhase, _sandbox)
+              _revoked = _get(_ann, "agents.ogenki.io/revoked")
+              _validRevoke = _revoked in _REVOKE_REASONS
+
+              # A fresh, valid revocation always wins, whatever the latched phase says
+              # (F2): it stops the Sandbox even on an otherwise-inspectable Succeeded/
+              # Failed run. Nothing ever dials into a sandbox anyway (C4).
+              _live = _phase not in ["Revoked", "BudgetExhausted"] and not _validRevoke
+
+              # F2b: once the phase is ANY terminal value, withhold the ServiceAccount so
+              # a pod agent-sandbox recreates from a finished Sandbox cannot start (no SA,
+              # no fresh token) and run again. The Sandbox object still renders through
+              # Succeeded/Failed, suspended — see `_live` above and `_suspended` below.
+              _saLive = _phase not in _TERMINAL_PHASES
+
+              # M2: once Succeeded/Failed the Sandbox is Suspended: agent-sandbox v1.0.3
+              # deletes the finished pod and skips its create path, so a pod lost to
+              # Karpenter and pod GC is never recreated. F2b's withheld SA is the second
+              # lock.
+              _suspended = _phase in ["Succeeded", "Failed"]
+              _finished = _condition(_sandbox, "Finished")
+              _usage = _usageTokens(_ann, _previous?.usage?.tokens)
+              _pr = _pullRequest(_ann, _repo, _previous?.pullRequest)
+
+              # `_get`, not `_previous?.reason`: a single-level `?.` miss on an
+              # otherwise-present dict doesn't reliably compare `!= None` in KCL 0.11.3
+              # (function-kcl's own dict-mutation gotcha's sibling) — `_get`'s explicit
+              # `in`-check is the pattern already proven safe for `_revoked` above.
+              # A recovered Failed run had reason PodFailed; a Succeeded one had none.
+              _prevReason = ("PodFailed" if _finishedFor == "Failed" else None) if _recovered else _get(_previous, "reason")
+              _reason = _reasonOf(_phase, _prevPhase, _prevReason, _revoked)
+              _labels = {
+                  "agents.ogenki.io/run-id" = _runId
+                  "agents.ogenki.io/role" = _role
+                  if _taskLabel:
+                      "agents.ogenki.io/task" = _taskLabel
+              }
+              _meta = lambda suffix: str, name: str, ready: bool, extra: {str:str} -> any {
+                  {
+                      name = name
+                      namespace = _ns
+                      labels = _labels
+                      annotations = {
+                          "krm.kcl.dev/composition-resource-name" = _name + "-" + suffix
+                          "agents.ogenki.io/principal" = _spec.principal
+                          **extra
+                          if ready:
+                              "krm.kcl.dev/ready" = "True"
+                      }
+                  }
+              }
+
+              # A terminal Sandbox is ready by definition: once Suspended it reports
+              # Ready=False (SandboxSuspended) and loses Finished with its pod, and the
+              # XR must not flap.
+              _sandboxReady = _phase in _TERMINAL_PHASES or _condition(_sandbox, "Ready")?.status == "True"
+              _serviceAccount = [{
+                  apiVersion = "v1"
+                  kind = "ServiceAccount"
+                  metadata = _meta("sa", _name, _observed(_ocds, _name + "-sa") != None, {})
+                  automountServiceAccountToken = False
+              }] if _saLive else []
+              _taskConfigMap = [{
+                  apiVersion = "v1"
+                  kind = "ConfigMap"
+                  metadata = _meta("task", _name + "-task", True, {})
+                  data = {
+                      "task.md" = _spec.task.text if _spec.task?.text else "Work on {}.\n".format(_spec.task.url)
+                      "rules.md" = _rulesFor(_role, _runId, _repo, _branch, _baseRef)
+                      "run.json" = json.encode({runId = _runId, role = _role, repository = _repo, baseRef = _baseRef, branch = _branch, dataClass = _class, model = _model, principal = _spec.principal})
+                  }
+              }]
+              _dnsNames = [_ROUTER_FQDN] + ([_BROKER_FQDN] if _roomRef else []) + _fqdns
+              _networkPolicy = [{
+                  apiVersion = "cilium.io/v2"
+                  kind = "CiliumNetworkPolicy"
+                  metadata = _meta("cnp", _name, True, {})
+                  spec = {
+                      endpointSelector.matchLabels = {"agents.ogenki.io/run-id" = _runId}
+                      # kubelet's probes of the proxy's health listener, nothing else:
+                      # the harness is probed by exec, and nothing ever dials into a
+                      # sandbox (C4).
+                      ingress = [{
+                          fromEntities = ["host"]
+                          toPorts = [{ports = [{port = str(_PROXY_HEALTH_PORT), protocol = "TCP"}]}]
+                      }]
+                      egress = [
+                          {
+                              toEndpoints = [{
+                                  matchLabels = {"io.kubernetes.pod.namespace" = "kube-system", "k8s-app" = "kube-dns"}
+                              }]
+                              toPorts = [{
+                                  ports = [{port = "53", protocol = "UDP"}, {port = "53", protocol = "TCP"}]
+                                  # Answers only these names (S10, T6): no wildcard.
+                                  rules.dns = [{matchName = n} for n in _dnsNames]
+                              }]
+                          }
+                          {
+                              # Both the label AND its owning namespace are pinned (F1):
+                              # an App claim can create its own Gateway named "agent-router"
+                              # in its own namespace, and without the namespace pin that
+                              # tenant Gateway's data-plane pods would match too — an
+                              # exfiltration relay for every run's tokens.
+                              toEndpoints = [{
+                                  matchLabels = {"io.kubernetes.pod.namespace" = "envoy-gateway-system", "gateway.envoyproxy.io/owning-gateway-name" = "agent-router", "gateway.envoyproxy.io/owning-gateway-namespace" = "agent-system"}
+                              }]
+                              toPorts = [{ports = [{port = str(_ROUTER_PORT[_class]), protocol = "TCP"}, {port = str(_STS_PORT), protocol = "TCP"}]}]
+                          }
+                          {
+                              toFQDNs = [{matchName = f} for f in _fqdns]
+                              toPorts = [{ports = [{port = "443", protocol = "TCP"}]}]
+                          }
+                      ] + ([{
+                          toEndpoints = [{
+                              matchLabels = {"io.kubernetes.pod.namespace" = "agent-system", "app.kubernetes.io/name" = "room-broker"}
+                          }]
+                          toPorts = [{ports = [{port = "8443", protocol = "TCP"}]}]
+                      }] if _roomRef else [])
+                  }
+              }]
+              _podLabels = _labels | ({"kueue.x-k8s.io/queue-name" = _spec.queueName} if _spec.queueName else {})
+              _sandboxResource = [{
+                  apiVersion = "agents.x-k8s.io/v1beta1"
+                  kind = "Sandbox"
+                  metadata = _meta("sandbox", _name, _sandboxReady, {"agents.ogenki.io/finished-phase" = _phase} if _suspended else {})
+                  spec = {
+                      # Nothing ever dials into a sandbox (C4).
+                      service = False
+                      operatingMode = "Suspended" if _suspended else "Running"
+                      podTemplate = {
+                          metadata = {
+                              labels = _podLabels
+                              annotations = {"karpenter.sh/do-not-disrupt" = "true"}
+                          }
+                          spec = {
+                              serviceAccountName = _name
+                              automountServiceAccountToken = False
+                              runtimeClassName = "gvisor"
+                              restartPolicy = "Never"
+                              activeDeadlineSeconds = _maxMinutes * 60
+                              enableServiceLinks = False
+                              shareProcessNamespace = False
+                              terminationGracePeriodSeconds = 30
+                              dnsConfig = {options = [{name = "ndots", value = "1"}]}
+                              securityContext = {
+                                  runAsNonRoot = True
+                                  runAsUser = 10001
+                                  runAsGroup = 10001
+                                  fsGroup = 10001
+                                  seccompProfile = {type = "RuntimeDefault"}
+                              }
+                              # Native sidecar: the ONLY container that mounts the gateway and
+                              # octo-sts tokens (S5). The harness reaches them as localhost ports.
+                              initContainers = [{
+                                  name = "identity-proxy"
+                                  image = _IDENTITY_PROXY_IMAGE
+                                  restartPolicy = "Always"
+                                  # --disable-hot-restart: hot restart's abstract socket and shared memory
+                                  # segment are reachable by the harness over the shared netns/IPC (I3) --
+                                  # a control channel into the only container holding tokens.
+                                  # --concurrency 1: this 200m/128Mi sidecar only needs one Envoy worker.
+                                  args = ["-c", "/etc/envoy/envoy.yaml", "--log-level", "warn", "--disable-hot-restart", "--concurrency", "1"]
+                                  ports = [{name = "health", containerPort = _PROXY_HEALTH_PORT, protocol = "TCP"}]
+                                  # A native sidecar gates the next container only on its startupProbe:
+                                  # without one the harness can reach :4000 before the proxy serves it.
+                                  startupProbe = {httpGet = {path = "/ready", port = _PROXY_HEALTH_PORT}, periodSeconds = 1, failureThreshold = 60}
+                                  readinessProbe = {httpGet = {path = "/ready", port = _PROXY_HEALTH_PORT}, periodSeconds = 5}
+                                  livenessProbe = {httpGet = {path = "/ready", port = _PROXY_HEALTH_PORT}, periodSeconds = 10, failureThreshold = 3}
+                                  resources = {requests = {cpu = "50m", memory = "64Mi"}, limits = {cpu = "200m", memory = "128Mi"}}
+                                  securityContext = _CONTAINER_SECURITY
+                                  volumeMounts = [
+                                      {name = "proxy-config", mountPath = "/etc/envoy", readOnly = True}
+                                      {name = "gateway-token", mountPath = "/var/run/secrets/agents/gateway", readOnly = True}
+                                      {name = "sts-token", mountPath = "/var/run/secrets/agents/sts", readOnly = True}
+                                      {name = "proxy-tmp", mountPath = "/tmp"}
+                                  ]
+                              }]
+                              containers = [{
+                                  name = "harness"
+                                  image = _profile.image
+                                  args = _profile.args
+                                  env = [
+                                      {name = "RUN_ID", value = _runId}
+                                      {name = "ROLE", value = _role}
+                                      {name = "REPOSITORY", value = _repo}
+                                      {name = "BASE_REF", value = _baseRef}
+                                      {name = "BRANCH", value = _branch}
+                                      {name = "MODEL", value = _model}
+                                      {name = "DATA_CLASS", value = _class}
+                                      {name = "CONVERSATION_ID", value = _oxr.metadata?.uid or ""}
+                                      {name = "LLM_BASE_URL", value = "http://127.0.0.1:{}/v1".format(_PROXY_PORT[_class])}
+                                      {name = "MCP_URL", value = "http://127.0.0.1:{}/mcp".format(_PROXY_PORT[_class])}
+                                      {name = "STS_URL", value = "http://127.0.0.1:4001/sts/exchange"}
+                                      {name = "TASK_FILE", value = "/run/agent/task/task.md"}
+                                      {name = "RULES_FILE", value = "/run/agent/task/rules.md"}
+                                      {name = "HOME", value = "/home/openhands"}
+                                  ]
+                                  # No containerPort: agent-server listens on loopback only.
+                                  # timeoutSeconds covers python3's start-up under gVisor
+                                  # plus urlopen's own 2 s; kubelet's 1 s default would
+                                  # kill a healthy probe.
+                                  startupProbe = {exec.command = _localGet(_profile.port, "/ready"), periodSeconds = 5, failureThreshold = 60, timeoutSeconds = 5}
+                                  readinessProbe = {exec.command = _localGet(_profile.port, "/ready"), periodSeconds = 10, timeoutSeconds = 5}
+                                  livenessProbe = {exec.command = _localGet(_profile.port, "/health"), periodSeconds = 20, failureThreshold = 3, timeoutSeconds = 5}
+                                  if _profile?.preStop:
+                                      lifecycle.preStop.exec.command = _profile.preStop
+                                  resources = {
+                                      requests = {cpu = _size.cpu[0], memory = _size.memory[0], "ephemeral-storage" = "1Gi"}
+                                      limits = {cpu = _size.cpu[1], memory = _size.memory[1], "ephemeral-storage" = _size.scratch}
+                                  }
+                                  securityContext = _CONTAINER_SECURITY
+                                  volumeMounts = [
+                                      {name = "workspace", mountPath = "/workspace"}
+                                      {name = "home", mountPath = "/home/openhands"}
+                                      {name = "tmp", mountPath = "/tmp"}
+                                      {name = "git-cache", mountPath = "/run/agent/git"}
+                                      {name = "task", mountPath = "/run/agent/task", readOnly = True}
+                                  ]
+                              }]
+                              volumes = [
+                                  {name = "gateway-token", projected = {defaultMode = 288, sources = [{
+                                      serviceAccountToken = {audience = "agent-router.{}.{}".format(_role, _class), expirationSeconds = _tokenTTL, path = "token"}
+                                  }]}}
+                                  {name = "sts-token", projected = {defaultMode = 288, sources = [{
+                                      serviceAccountToken = {audience = "octo-sts/{}/{}".format(_repo, _role), expirationSeconds = _tokenTTL, path = "token"}
+                                  }]}}
+                                  {name = "proxy-config", configMap = {name = "agent-identity-proxy"}}
+                                  {name = "proxy-tmp", emptyDir = {medium = "Memory", sizeLimit = "16Mi"}}
+                                  {name = "task", configMap = {name = _name + "-task"}}
+                                  {name = "workspace", emptyDir = {sizeLimit = _size.scratch}}
+                                  {name = "home", emptyDir = {sizeLimit = "2Gi"}}
+                                  {name = "tmp", emptyDir = {sizeLimit = "2Gi"}}
+                                  # The GitHub token cache lives in memory only (T3).
+                                  {name = "git-cache", emptyDir = {medium = "Memory", sizeLimit = "1Mi"}}
+                              ]
+                          }
+                      }
+                  }
+              }] if _live else []
+              _status = [{
+                  **_dxr
+                  status: {
+                      phase = _phase
+                      runId = _runId
+                      branch = _branch
+                      conversationId = _oxr.metadata?.uid or ""
+                      # Fall back to the previous value once the Sandbox is gone (F3) —
+                      # same "last valid value stays" contract as usage/pullRequest below.
+                      if _sandbox?.metadata?.creationTimestamp:
+                          startedAt = _sandbox.metadata.creationTimestamp
+                      elif _previous?.startedAt:
+                          startedAt = _previous.startedAt
+                      if _finished?.lastTransitionTime:
+                          finishedAt = _finished.lastTransitionTime
+                      elif _previous?.finishedAt:
+                          finishedAt = _previous.finishedAt
+                      if _reason:
+                          reason = _reason
+                      if _usage != None:
+                          usage = {tokens = _usage}
+                      if _pr:
+                          pullRequest = _pr
+                  }
+              }]
+
+              # The preStop revokes the GitHub token through api.github.com, and Crossplane
+              # deletes composed resources in parallel: the CNP could go first and strand the
+              # token for up to an hour. The Usage holds the CNP until the Sandbox is gone,
+              # then replays its deletion.
+              _cnpUsage = [{
+                  apiVersion = "protection.crossplane.io/v1beta1"
+                  kind = "Usage"
+                  metadata = _meta("usage", _name + "-cnp", True, {})
+                  spec = {
+                      replayDeletion = True
+                      of = {apiVersion = "cilium.io/v2", kind = "CiliumNetworkPolicy", resourceRef = {name = _name}}
+                      by = {apiVersion = "agents.x-k8s.io/v1beta1", kind = "Sandbox", resourceRef = {name = _name}}
+                  }
+              }] if _live else []
+              _serviceAccount + _taskConfigMap + _networkPolicy + _cnpUsage + _sandboxResource + _status
+          }
+
+          items = _render(oxr, ocds, option("params").dxr)
+  - step: ready
+    functionRef:
+      name: function-auto-ready

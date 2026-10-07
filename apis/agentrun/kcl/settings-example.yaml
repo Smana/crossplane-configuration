@@ -1,0 +1,24 @@
+kcl_options:
+  - key: params
+    value:
+      oxr:
+        apiVersion: cloud.ogenki.io/v1alpha1
+        kind: AgentRun
+        metadata:
+          name: xplane-run-7f3cq2xz
+          namespace: agents
+          uid: 0b3c6f0e-5d1a-4b8e-9f41-2a7c3e9d8b10
+        spec:
+          role: implementer
+          repository: Smana/cloud-native-ref
+          principal: "human:312345678901234567"
+          dataClass: public
+          task:
+            text: "Fix the broken link in docs/README.md."
+      ocds: {}
+      dxr:
+        apiVersion: cloud.ogenki.io/v1alpha1
+        kind: AgentRun
+        metadata:
+          name: xplane-run-7f3cq2xz
+          namespace: agents

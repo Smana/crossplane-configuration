@@ -14,6 +14,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# core ships 5 XRDs (App, SQLInstance, KVStore, InferenceService, AgentRun) and
+# 2 Compositions (KVStore, AgentRun) -- it went 4/1 -> 5/2 when AgentRun's
+# Composition landed as the second cloud-neutral one, alongside KVStore's.
+#
 # gcp ships 4 Compositions: GCPWorkloadIdentity, App (GCS buckets with
 # bucket-scoped workload identity), SQLInstance (CNPG with barman backups to
 # Cloud Storage) and InferenceService (per-claim read identity on the weights
@@ -22,13 +26,14 @@ cd "$(dirname "$0")/.."
 # stopped being a stub and became a real implementation.
 #
 # Its XRD count stays 1: GCPWorkloadIdentity is the only contract it owns. App,
-# SQLInstance, InferenceService and KVStore are cloud-neutral and ship from core.
+# SQLInstance, InferenceService, KVStore and AgentRun are cloud-neutral and ship
+# from core.
 #
 # aws stays 4 (App, SQLInstance, InferenceService, EPI) and 1 XRD (EPI) --
 # InferenceService moved from a lone composition.yaml to composition-aws.yaml
 # without changing the count.
-declare -A EXPECT_XRD=([core]=4 [aws]=1 [gcp]=1)
-declare -A EXPECT_COMP=([core]=1 [aws]=4 [gcp]=4)
+declare -A EXPECT_XRD=([core]=5 [aws]=1 [gcp]=1)
+declare -A EXPECT_COMP=([core]=2 [aws]=4 [gcp]=4)
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "${tmp}"' EXIT
