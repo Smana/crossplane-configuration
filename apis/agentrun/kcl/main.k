@@ -151,7 +151,10 @@ _observed = lambda state: any, key: str -> any {
 # the control plane stopped for its node (disruption design §3), which fails the run even before
 # the Sandbox reports Finished.
 # `exited` is the harness's exit code (C1): 0 is Succeeded, below the revocations and above every
-# failure, so the latch holds a finished run whatever its pod goes through next.
+# failure, so the latch holds a finished run whatever its pod goes through next. It latches while
+# the sidecars still drain, withholding the SA, so the bridge's drain flush can no longer
+# authenticate: accepted, since agent-run's own final read completes the room log before it exits.
+# A crash sets only the reason (_reasonOf), never the phase early, so its transcript still flushes.
 # Pending means never started: Running latches too, below every end. agent-sandbox
 # v1.0.3 reports Ready=False from the harness's exit until the pod is Succeeded
 # (the sidecars drain for up to 45 s), and a run read Pending then looks never
