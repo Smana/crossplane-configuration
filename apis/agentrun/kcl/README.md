@@ -1,0 +1,79 @@
+# AgentRun Composition
+
+One gVisor-sandboxed coding-agent run (cloud-native-ref Agent Factory, SP1). Renders, all named
+`xplane-run-<runId>[-suffix]` in namespace `agents`:
+
+| Resource | Rendered unless | Ready when |
+|---|---|---|
+| `ServiceAccount` (automount off, no RBAC) | the phase is terminal (any of the four) | observed |
+| `ConfigMap -task` (`task.md`, `rules.md`, `run.json`) | — | always |
+| `CiliumNetworkPolicy` (DNS L7 allowlist, the class's gateway port, octo-sts, the trace collector's POST /v1/traces, FQDN profiles) | — | always |
+| `Sandbox` (`agents.x-k8s.io/v1beta1`, RuntimeClass `gvisor`, identity-proxy native sidecar) | revoked | Sandbox `Ready`, or the phase is terminal |
+
+With `roomRef`: a native sidecar `room-bridge` (SP2) and a `room-token` volume, audience
+`room-broker`, 600 s, mounted by the bridge only, with the Secret `room-broker-ca` for TLS to the
+broker. The run CNP admits kubelet on `8085`. `rules.md` ends with a `Room <roomId>:` section:
+`room_read` first, `room_handoff` for implementers, testers and triagers, `room_verdict` for
+reviewers and testers, and peer text is data.
+
+The harness container (the `openhands` profile) gets `ROOM_ID` with `roomRef`, `TASK_URL` with
+`task.url` and `TASK_ID` with the claim label `agents.ogenki.io/task`, each only when present: the
+inputs of the footer its `gh` wrapper appends (SP2 design §5). They are provenance hints, never
+authorisation.
+
+A `Succeeded` or `Failed` run's Sandbox is rendered `operatingMode: Suspended`: agent-sandbox deletes
+the finished pod and never recreates it. The Sandbox also carries
+`agents.ogenki.io/finished-phase`, so a lost XR status write cannot turn a finished run back into
+`Pending` and run it again.
+
+Why a `Failed` run ended is read from its pod, which the composition asks Crossplane for as a
+required resource (`runPod`, function-kcl v0.12.2): `Disrupted` when the pod is `Failed` with
+`DisruptionTarget=True` (a graceful node shutdown, an eviction, a preemption), `PodLost` when it was
+deleted or replaced before a final state was read, `PodFailed` otherwise. The harness container's
+own exit code comes first: 0 is `Succeeded` whatever the pod goes through afterwards, and any code
+but 0, 137 or 143 is `PodFailed`, even on a disrupted pod. Only a pod the run's Sandbox controls
+(`ownerReferences`) is read. Crossplane serves the
+pod from a cluster-wide informer, so its ServiceAccount needs `get`, `list` and `watch` on pods.
+
+## API
+
+```yaml
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: AgentRun
+metadata:
+  name: xplane-run-7f3cq2xz        # xplane-run-<runId>, runId = 8 chars of [a-z2-7]
+  namespace: agents                # the only namespace a run may live in
+spec:
+  role: implementer                # implementer|reviewer|tester|triager
+  repository: Smana/cloud-native-ref
+  principal: "human:312345678901234567"  # human:<zitadel sub> or system:<component>
+  dataClass: public                # public|internal, no default
+  task:
+    text: "Fix the broken relative link in docs/superpowers/README.md."  # or url:, exactly one
+  budget:
+    maxTokens: 2000000             # default; the only field an update may change
+  egress:
+    profiles: [pypi]               # on top of github; pypi|npm|golang|crates
+```
+
+- **Immutable after creation**: everything in `spec` except `budget.maxTokens`, including adding or
+  removing an optional field (`branch`, `roomRef`, `queueName`). To change a run, start another.
+- `branch` defaults to `agent/<runId>`, `baseRef` to `main`, `model` to `agent-default`, `size` to
+  `small`, `budget.maxMinutes` to 120.
+- Every field: `examples/agentrun-complete.yaml`.
+
+## Status has one writer
+
+Controllers never patch status. They write annotations; this composition validates and projects them.
+
+| Annotation | Projected to | Accepted value |
+|---|---|---|
+| `agents.ogenki.io/usage-tokens` | `status.usage.tokens` | `^[0-9]{1,12}$` |
+| `agents.ogenki.io/pull-request` | `status.pullRequest` | `https://github.com/<spec.repository>/pull/<n>` |
+| `agents.ogenki.io/revoked` | `status.phase` | `budget-run`, `budget-principal`, `budget-fleet` → `BudgetExhausted`; `manual` → `Revoked` |
+
+A malformed value is ignored and the last valid one stays. Revocation and terminal phases latch.
+
+## Test
+
+    kcl test . -Y settings-example.yaml

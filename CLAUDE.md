@@ -24,8 +24,8 @@ Inlining is the point of this repo: an installed package pulls nothing at render
 | `packages/{core,aws,gcp}/crossplane.yaml` | package metadata and `dependsOn` |
 | `tests/golden/` | rendered fixtures captured pre-extraction; render equivalence is diffed against these |
 
-APIs: `App`, `SQLInstance`, `KVStore`, `InferenceService` (core), `EPI` + the AWS Compositions
-(aws), and `GCPWorkloadIdentity` (gcp). All in group `cloud.ogenki.io`.
+APIs: `App`, `SQLInstance`, `KVStore`, `InferenceService`, `AgentRun` (core), `EPI` + the AWS
+Compositions (aws), and `GCPWorkloadIdentity` (gcp). All in group `cloud.ogenki.io`.
 
 ## Commands
 

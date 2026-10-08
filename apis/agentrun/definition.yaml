@@ -1,0 +1,243 @@
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: agentruns.cloud.ogenki.io
+spec:
+  group: cloud.ogenki.io
+  scope: Namespaced
+  names:
+    kind: AgentRun
+    plural: agentruns
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      additionalPrinterColumns:
+        - name: Role
+          type: string
+          jsonPath: .spec.role
+        - name: Class
+          type: string
+          jsonPath: .spec.dataClass
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Branch
+          type: string
+          jsonPath: .status.branch
+        # Observability plan O8 (formerly SP3 CC-F1, SD13). TOKENS and PR stay empty until a
+        # meter (SP4 PR 2) and the factory (SP3) write their annotations.
+        - name: Principal
+          type: string
+          jsonPath: .spec.principal
+        - name: PR
+          type: string
+          jsonPath: .status.pullRequest
+        - name: Tokens
+          type: integer
+          jsonPath: .status.usage.tokens
+        - name: Reason
+          type: string
+          jsonPath: .status.reason
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-validations:
+            # The composition derives the runId from the name, and every composed
+            # name, audience and octo-sts subject pattern depends on this shape (C2).
+            - rule: "self.metadata.name.matches('^xplane-run-[a-z2-7]{8}$')"
+              message: "an AgentRun is named xplane-run-<runId>, runId being 8 characters of [a-z2-7]"
+          properties:
+            spec:
+              type: object
+              required: [role, repository, principal, dataClass, task]
+              x-kubernetes-validations:
+                # Four backslashes: YAML unescapes them to two, CEL's string literal to
+                # one, so the regex sees `\.` -- a literal dot.
+                - rule: "self.role != 'reviewer' || (has(self.task.url) && self.task.url.matches('^https://github\\\\.com/[^/]+/[^/]+/pull/[0-9]+$'))"
+                  message: "a reviewer run needs a pull request URL as its task"
+                - rule: "!has(self.task.url) || self.task.url.startsWith('https://github.com/' + self.repository + '/')"
+                  message: "task.url must point into spec.repository"
+                # The run profile is fixed at creation (C5, SP2 S9). agent-sandbox never
+                # patches a live pod and Crossplane re-renders the CNP, so an edit would
+                # widen egress mid-run or reach only a recreated pod. A field-level
+                # `self == oldSelf` is skipped when the old value is absent, which would
+                # let an optional field be ADDED later -- so the optional fields are
+                # pinned here, presence and value. Defaulted fields are always present
+                # and carry their own field-level rule. budget.maxTokens stays mutable:
+                # it is the owner's cap.
+                - rule: "has(self.branch) == has(oldSelf.branch) && (!has(self.branch) || self.branch == oldSelf.branch)"
+                  message: "branch is immutable and cannot be added or removed after creation"
+                - rule: "has(self.roomRef) == has(oldSelf.roomRef) && (!has(self.roomRef) || self.roomRef == oldSelf.roomRef)"
+                  message: "roomRef is immutable and cannot be added or removed after creation"
+                - rule: "has(self.queueName) == has(oldSelf.queueName) && (!has(self.queueName) || self.queueName == oldSelf.queueName)"
+                  message: "queueName is immutable and cannot be added or removed after creation"
+              properties:
+                role:
+                  description: The run's one role (C2). A policy input, not an identity.
+                  type: string
+                  enum: [implementer, reviewer, tester, triager]
+                  x-kubernetes-validations:
+                    - {rule: "self == oldSelf", message: "role is immutable"}
+                repository:
+                  description: The single GitHub repository this run may touch, as owner/name.
+                  type: string
+                  # GitHub caps an owner at 39 characters and a repository at 100.
+                  maxLength: 140
+                  pattern: '^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$'
+                  x-kubernetes-validations:
+                    - {rule: "self == oldSelf", message: "repository is immutable"}
+                baseRef:
+                  description: Branch or commit the harness clones.
+                  type: string
+                  default: main
+                  maxLength: 255
+                  # A safe git-ref shape (F8), not the full git-check-ref-format
+                  # grammar: alphanumeric runs joined by `_`, `/` or `-`, with at
+                  # most one "." between two runs -- so it starts and ends
+                  # alphanumeric and never holds "..". It flows unvalidated into
+                  # rules.md, BASE_REF and run.json. `main`, `agent/<id>` and a
+                  # 40-char SHA all match. The two alternation branches share no
+                  # prefix a backtracker could retry two ways, which keeps this
+                  # linear-time even in non-RE2 engines -- e.g. a UI form built
+                  # from this schema.
+                  pattern: '^[A-Za-z0-9]+(?:(?:[_/-]+(?:\.[_/-]*)?|\.[_/-]*)[A-Za-z0-9]+)*$'
+                  x-kubernetes-validations:
+                    - {rule: "self == oldSelf", message: "baseRef is immutable"}
+                branch:
+                  description: |
+                    The one branch an implementer pushes. Derived by the factory, never
+                    by a caller: agent/<taskId>, agent/<roomId>, else agent/<runId>.
+                    Defaults to agent/<runId> in the composition.
+                  type: string
+                  pattern: '^agent/[a-z0-9][a-z0-9._/-]{0,100}$'
+                task:
+                  description: Exactly one of text or url.
+                  type: object
+                  x-kubernetes-validations:
+                    - rule: "(has(self.text) ? 1 : 0) + (has(self.url) ? 1 : 0) == 1"
+                      message: "set exactly one of task.text or task.url"
+                    - {rule: "self == oldSelf", message: "task is immutable"}
+                  properties:
+                    text:
+                      type: string
+                      maxLength: 16384
+                    url:
+                      description: A GitHub issue or pull request.
+                      type: string
+                      maxLength: 256
+                      pattern: '^https://github\.com/[A-Za-z0-9-]+/[A-Za-z0-9._-]+/(issues|pull)/[0-9]+$'
+                principal:
+                  description: Accountable principal, human:<zitadel sub> or system:<component> (C3).
+                  type: string
+                  maxLength: 128
+                  pattern: '^(human:[A-Za-z0-9@._-]+|system:[a-z0-9-]+)$'
+                  x-kubernetes-validations:
+                    - {rule: "self == oldSelf", message: "principal is immutable"}
+                model:
+                  description: A logical model name (C5), resolved by the class's listener.
+                  type: string
+                  enum: [agent-default, tier-light, tier-standard, tier-frontier]
+                  default: agent-default
+                  x-kubernetes-validations:
+                    - {rule: "self == oldSelf", message: "model is immutable"}
+                dataClass:
+                  description: |
+                    public or internal. Picks the gateway audience, proxy port and listener,
+                    and which MCP tools the run sees. No default: classifying data is a decision.
+                  type: string
+                  enum: [public, internal]
+                  x-kubernetes-validations:
+                    - {rule: "self == oldSelf", message: "dataClass is immutable"}
+                budget:
+                  type: object
+                  default: {}
+                  properties:
+                    maxTokens:
+                      description: Per-run cap. The maximum equals the gateway's per-run ceiling (C3, C5).
+                      type: integer
+                      default: 2000000
+                      minimum: 1
+                      maximum: 5000000
+                    maxMinutes:
+                      description: Becomes activeDeadlineSeconds.
+                      type: integer
+                      default: 120
+                      minimum: 1
+                      maximum: 480
+                      x-kubernetes-validations:
+                        - {rule: "self == oldSelf", message: "budget.maxMinutes is immutable"}
+                harness:
+                  description: A platform profile; the composition maps it to an image digest.
+                  type: string
+                  enum: [openhands]
+                  default: openhands
+                  x-kubernetes-validations:
+                    - {rule: "self == oldSelf", message: "harness is immutable"}
+                size:
+                  description: small/medium/large = 1->2 / 2->4 / 4->8 CPU, 2 GiB per CPU, 10/20/40 Gi scratch.
+                  type: string
+                  enum: [small, medium, large]
+                  default: small
+                  x-kubernetes-validations:
+                    - {rule: "self == oldSelf", message: "size is immutable"}
+                egress:
+                  type: object
+                  default: {}
+                  x-kubernetes-validations:
+                    - {rule: "self == oldSelf", message: "egress is immutable"}
+                  properties:
+                    profiles:
+                      description: FQDN profiles on top of github, which is always on.
+                      type: array
+                      default: []
+                      maxItems: 4
+                      x-kubernetes-list-type: set
+                      items:
+                        type: string
+                        enum: [pypi, npm, golang, crates]
+                roomRef:
+                  description: Optional room this run joins (SP2).
+                  type: string
+                  pattern: '^[a-z2-7]{8}$'
+                queueName:
+                  description: Kueue LocalQueue, set as the queue label on the sandbox pod (SP3).
+                  type: string
+                  maxLength: 63
+                  # F8: the composition writes this verbatim into a Kubernetes
+                  # label value (kueue.x-k8s.io/queue-name), so it must be a
+                  # valid one.
+                  pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: [Pending, Running, Succeeded, Failed, BudgetExhausted, Revoked]
+                runId:
+                  type: string
+                branch:
+                  type: string
+                conversationId:
+                  type: string
+                startedAt:
+                  type: string
+                finishedAt:
+                  type: string
+                reason:
+                  description: >-
+                    Why the run ended. Failed: Disrupted (its pod was stopped for its node: a graceful
+                    node shutdown, an eviction, a preemption), PodLost (its pod was deleted or vanished
+                    with its node), PodFailed (the harness failed: an error, a crash, out of memory, the
+                    deadline). Revoked and BudgetExhausted: the revocation reason (manual, budget-run,
+                    budget-principal, budget-fleet).
+                  type: string
+                pullRequest:
+                  type: string
+                usage:
+                  type: object
+                  properties:
+                    tokens:
+                      type: integer
+          required:
+            - spec

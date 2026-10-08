@@ -33,8 +33,30 @@ spec:
     # Raised ahead of time since:
     #   >=v0.6.1 -> v0.7.0  sidecars[].inheritEnv/livenessProbe/readinessProbe and
     #                       observability.metrics.scrape, read by the App Compositions.
+    #   >=v0.7.0 -> v0.8.0  AgentRun: Crossplane never upgrades an installed
+    #                       dependency on its own, so aws-0 would keep a core
+    #                       without AgentRun otherwise.
+    #   >=v0.8.0 -> v0.8.1  the AgentRun Composition runs the platform harness
+    #                       image (CC-2). No XRD field changed, but a cluster
+    #                       on core v0.8.0 would keep the upstream agent-server
+    #                       image, which has no driver: a run would never work
+    #                       its task.
+    #   >=v0.8.1 -> v0.9.0  SQLInstance `credentials.source`: the SQLInstance
+    #                       Composition reads it, and an older core XRD prunes
+    #                       it, so a `generated` claim would silently fall back
+    #                       to the store. Core v0.9.0 also carries the AgentRun
+    #                       rooms work, which a cluster gets only with this floor.
+    #   >=v0.9.0 -> v0.9.1  the AgentRun Composition's harness v0.3.0 (disruption:
+    #                       checkpoint on SIGTERM). No XRD field changed, so the
+    #                       v0.9.1 release left this floor alone and shipped aws
+    #                       and gcp byte-identical to v0.9.0: a cluster on core
+    #                       v0.9.0 kept harness v0.2.0. Like v0.8.1, an image-only
+    #                       core change still needs the floor.
+    #   >=v0.9.1 -> v0.9.3  the AgentRun Composition's room-bridge v0.8.0
+    #                       (`room_progress` is read-only; v0.6.1 would ask a
+    #                       human to approve every progress note). Image-only.
     - configuration: ghcr.io/smana/crossplane-configuration-core
-      version: ">=v0.7.0"
+      version: ">=v0.9.3"
     # NO function dependsOn — deliberately. See Smana/cloud-native-ref#1971 and
     # the longer note in packages/core/crossplane.yaml. Declaring a function
     # here while the consuming repo also pins it creates two Function resources

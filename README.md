@@ -11,7 +11,7 @@ Compositions**, so installing a package pulls no further artifacts at render tim
 
 | Package | Contents |
 |---|---|
-| `ghcr.io/smana/crossplane-configuration-core` | Cloud-neutral contracts: `App`, `SQLInstance`, `KVStore`, `InferenceService` + the `KVStore` Composition |
+| `ghcr.io/smana/crossplane-configuration-core` | Cloud-neutral contracts: `App`, `SQLInstance`, `KVStore`, `InferenceService`, `AgentRun` + the `KVStore` and `AgentRun` Compositions |
 | `ghcr.io/smana/crossplane-configuration-aws` | `EPI` (EKS Pod Identity) + the AWS Compositions for `App`, `SQLInstance`, `InferenceService`, `EPI`. Depends on `-core` |
 | `ghcr.io/smana/crossplane-configuration-gcp` | `GCPWorkloadIdentity` + its Composition. Depends on `-core` |
 
@@ -30,6 +30,7 @@ All in group `cloud.ogenki.io`.
 | `InferenceService` | Self-hosted LLM inference: vLLM, KEDA autoscaling, Envoy AI Gateway routes |
 | `EPI` | EKS Pod Identity — an IAM role bound to a (namespace, ServiceAccount) pair |
 | `GCPWorkloadIdentity` | GKE Workload Identity — Google IAM roles bound to a (namespace, ServiceAccount) pair, no key and no annotation |
+| `AgentRun` | One gVisor-sandboxed coding-agent run: ServiceAccount, task ConfigMap, CNP, Sandbox |
 
 ## Install
 
