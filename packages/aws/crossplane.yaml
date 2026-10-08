@@ -46,8 +46,14 @@ spec:
     #                       it, so a `generated` claim would silently fall back
     #                       to the store. Core v0.9.0 also carries the AgentRun
     #                       rooms work, which a cluster gets only with this floor.
+    #   >=v0.9.0 -> v0.9.1  the AgentRun Composition's harness v0.3.0 (disruption:
+    #                       checkpoint on SIGTERM). No XRD field changed, so the
+    #                       v0.9.1 release left this floor alone and shipped aws
+    #                       and gcp byte-identical to v0.9.0: a cluster on core
+    #                       v0.9.0 kept harness v0.2.0. Like v0.8.1, an image-only
+    #                       core change still needs the floor.
     - configuration: ghcr.io/smana/crossplane-configuration-core
-      version: ">=v0.9.0"
+      version: ">=v0.9.1"
     # NO function dependsOn — deliberately. See Smana/cloud-native-ref#1971 and
     # the longer note in packages/core/crossplane.yaml. Declaring a function
     # here while the consuming repo also pins it creates two Function resources
