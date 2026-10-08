@@ -191,13 +191,7 @@ spec:
           value: openai
         - name: LMNR_TRACE_CONTENT
           value: "false"
-        image: ghcr.io/smana/agent-harness:v0.2.0-pr2142.10c062c2@sha256:78120d8dc5b519619968bb811ce63c7e67c9fa6de2755c3a31ff213c2bcce977
-        lifecycle:
-          preStop:
-            exec:
-              command:
-              - /usr/local/bin/git-credential-agent
-              - revoke
+        image: ghcr.io/smana/agent-harness:v0.2.0@sha256:10e96b5b1c1ef1e51aa2c8932d881689aeaab7b0ba804f7e7b9c8e68f4dc6e1d
         livenessProbe:
           exec:
             command:

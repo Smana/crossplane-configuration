@@ -228,13 +228,9 @@ spec:
           value: 6f2kq3ma
         - name: TASK_URL
           value: https://github.com/Smana/cloud-native-ref/pull/2090
-        image: ghcr.io/smana/agent-harness:v0.2.0-pr2142.10c062c2@sha256:78120d8dc5b519619968bb811ce63c7e67c9fa6de2755c3a31ff213c2bcce977
-        lifecycle:
-          preStop:
-            exec:
-              command:
-              - /usr/local/bin/git-credential-agent
-              - revoke
+        - name: BRIDGE_URL
+          value: http://127.0.0.1:8085
+        image: ghcr.io/smana/agent-harness:v0.2.0@sha256:10e96b5b1c1ef1e51aa2c8932d881689aeaab7b0ba804f7e7b9c8e68f4dc6e1d
         livenessProbe:
           exec:
             command:
@@ -366,6 +362,8 @@ spec:
           value: k2m4q7wa
         - name: ROOM_ID
           value: 3kq7x2ma
+        - name: BRANCH
+          value: agent/6f2kq3ma
         - name: CONVERSATION_ID
           value: ""
         - name: BROKER_URL
@@ -380,7 +378,7 @@ spec:
           value: github,pypi,golang
         - name: FLUSH_GRACE
           value: 12s
-        image: ghcr.io/smana/room-bridge:v0.0.1-pr6.e335dd32@sha256:814e637c9ad77c3f88779cbefe2f600f0ef8d5a7f954f4bc489f2467f14338d2
+        image: ghcr.io/smana/room-bridge:v0.6.1@sha256:646f971bda5ed5c77b5c49f5a63f192e8194250da1660d57365ab70ad1dfeee3
         livenessProbe:
           failureThreshold: 3
           httpGet:
@@ -427,6 +425,27 @@ spec:
         - mountPath: /etc/room-broker-ca
           name: room-broker-ca
           readOnly: true
+      - args:
+        - gate
+        image: ghcr.io/smana/room-bridge:v0.6.1@sha256:646f971bda5ed5c77b5c49f5a63f192e8194250da1660d57365ab70ad1dfeee3
+        name: room-gate
+        resources:
+          limits:
+            cpu: 50m
+            memory: 32Mi
+          requests:
+            cpu: 10m
+            memory: 16Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+        terminationMessagePolicy: FallbackToLogsOnError
       restartPolicy: Never
       runtimeClassName: gvisor
       securityContext:

@@ -29,7 +29,7 @@ spec:
           #                        collector, FQDN profiles
           #   Sandbox              agents.x-k8s.io/v1beta1 under gVisor (not when revoked;
           #                        Suspended once Succeeded/Failed); with roomRef, the
-          #                        room-bridge sidecar (SP2)
+          #                        room-bridge sidecar and its gate (SP2)
           # and patches the XR status.
           #
           # Status has ONE writer, this composition (C3). Controllers write annotations;
@@ -47,18 +47,15 @@ spec:
           # carries one, so bumping a digest is a release of this package.
           _HARNESS_PROFILES = {
               openhands = {
-                  # Pre-release pin for SP2's live gate (cloud-native-ref H-S3, the PR footer of SP2 design §5); re-pin to v0.2.0 in the merge wave (SP2 plan Phase 7).
-                  # Built from H-S3 merged with O-1's harness v0.1.2 (SP2 ruling TA), so it keeps the run's root span (observability plan O21).
-                  image = "ghcr.io/smana/agent-harness:v0.2.0-pr2142.10c062c2@sha256:78120d8dc5b519619968bb811ce63c7e67c9fa6de2755c3a31ff213c2bcce977"
+                  # Released by cloud-native-ref CI on main (#2142, H-S3): the PR footer on O-1's root span; the
+                  # digest is the multi-arch index. It revokes the run's token on SIGTERM, with no preStop. The
+                  # disruption sequence (checkpoint, final read) comes with v0.3.0, the next release of this package.
+                  image = "ghcr.io/smana/agent-harness:v0.2.0@sha256:10e96b5b1c1ef1e51aa2c8932d881689aeaab7b0ba804f7e7b9c8e68f4dc6e1d"
                   port = 8000
                   # agent-run, the image's entrypoint, starts agent-server on
                   # 127.0.0.1:8000 itself. Its API is unauthenticated, so it stays off the
                   # pod network, and the probes run inside the container (_localGet).
                   args = []
-                  # A deleted run revokes its GitHub token at once instead of leaving it
-                  # live until it expires (SC-07). The Usage below keeps the CNP's
-                  # api.github.com egress open until this has run.
-                  preStop = ["/usr/local/bin/git-credential-agent", "revoke"]
               }
           }
 
@@ -86,14 +83,17 @@ spec:
 
           # SP2's room bridge (cloud-native-ref SP2 plan, ruling P6): a native sidecar after
           # identity-proxy, rendered only with roomRef, pinned by digest like the harness.
-          # Tracks agent-platform PR #6's pre-release; moves to the release tag in the merge wave.
-          _BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.0.1-pr6.e335dd32@sha256:814e637c9ad77c3f88779cbefe2f600f0ef8d5a7f954f4bc489f2467f14338d2"
+          # agent-platform v0.6.1 (SP2: rooms, approvals, fork and roomctl, the final read). v0.6.0's release
+          # was cut short before roomctl and the CRD were attached, so nothing pins it.
+          _BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.6.1@sha256:646f971bda5ed5c77b5c49f5a63f192e8194250da1660d57365ab70ad1dfeee3"
           _BRIDGE_HEALTH_PORT = 8085
 
           # The kubelet signals the bridge only once the harness has exited, so a room
-          # run's grace covers, in order: the preStop revoke (a 10 s urlopen, ~12 s under
-          # gVisor), agent-run's SIGTERM cleanup (server.wait(10) and a second revoke,
-          # ~11 s), this flush (12 s) and the bridge's health drain (2 s): 37 s of 45.
+          # run's grace covers, in order: agent-run's shutdown sequence (disruption design
+          # §2: five boxes summing to 14 s, then at most 1 s exporting its span), this
+          # flush (12 s) and the bridge's health drain (2 s): 29 s of 45. A node shutdown
+          # caps the pod at the node's window (15 s on a GKE preemptible VM), which
+          # agent-run's final read is for.
           _BRIDGE_FLUSH_GRACE = "12s"
           _ROOM_GRACE_SECONDS = 45
 
@@ -130,6 +130,15 @@ spec:
               ["python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:{}{}', timeout=2)".format(port, path)]
           }
 
+          # F12: agent-sandbox v1.0.3 re-creates a deleted or evicted pod from the
+          # podTemplate whenever operatingMode is Running (reconcilePod: no owned pod, so
+          # create one), and has no setting that stops it. A task must never run twice,
+          # so once a run has been Running its template carries this scheduling gate. The
+          # controller never re-specs the pod already running, only its metadata, but a
+          # replacement is born gated and never scheduled. The Sandbox mirrors its
+          # PodScheduled=False/SchedulingGated, which ends the run Failed/PodLost.
+          _POD_LOST_GATE = "agents.ogenki.io/pod-lost"
+
           _BUDGET_REASONS = ["budget-run", "budget-principal", "budget-fleet"]
           _REVOKE_REASONS = _BUDGET_REASONS + ["manual"]
           _TERMINAL_PHASES = ["Succeeded", "Failed", "BudgetExhausted", "Revoked"]
@@ -160,18 +169,90 @@ spec:
           # unchanged no matter what the annotations or the observed Sandbox say this
           # reconcile (F2) — so removing an annotation never resurrects a run, and a
           # revoke arriving after completion never regresses a finished one either.
-          _phaseOf = lambda annotations: any, previous: str, sandbox: any -> str {
+          # `lost` (F12) is a replacement pod held by _POD_LOST_GATE; `disrupted` is a pod the kubelet or
+          # the control plane stopped for its node (disruption design §3), which fails the run even before
+          # the Sandbox reports Finished.
+          # `exited` is the harness's exit code (C1): 0 is Succeeded, below the revocations and above every
+          # failure, so the latch holds a finished run whatever its pod goes through next. It latches while
+          # the sidecars still drain, withholding the SA, so the bridge's drain flush can no longer
+          # authenticate: accepted, since agent-run's own final read completes the room log before it exits.
+          # A crash sets only the reason (_reasonOf), never the phase early, so its transcript still flushes.
+          # Pending means never started: Running latches too, below every end. agent-sandbox
+          # v1.0.3 reports Ready=False from the harness's exit until the pod is Succeeded
+          # (the sidecars drain for up to 45 s), and a run read Pending then looks never
+          # admitted to the factory, which deletes it.
+          _phaseOf = lambda annotations: any, previous: str, sandbox: any, lost: bool, disrupted: bool, exited: any -> str {
               _revoked = _get(annotations, "agents.ogenki.io/revoked") or ""
               _finished = _condition(sandbox, "Finished")
               _ready = _condition(sandbox, "Ready")
-              previous if previous in _TERMINAL_PHASES else "BudgetExhausted" if _revoked in _BUDGET_REASONS else "Revoked" if _revoked == "manual" else "Succeeded" if _finished?.status == "True" and _finished?.reason == "PodSucceeded" else "Failed" if _finished?.status == "True" and _finished?.reason == "PodFailed" else "Running" if _ready?.status == "True" else "Pending"
+              previous if previous in _TERMINAL_PHASES else "BudgetExhausted" if _revoked in _BUDGET_REASONS else "Revoked" if _revoked == "manual" else "Succeeded" if exited == 0 or _finished?.status == "True" and _finished?.reason == "PodSucceeded" else "Failed" if disrupted else "Failed" if _finished?.status == "True" and _finished?.reason == "PodFailed" else "Failed" if lost else "Running" if _ready?.status == "True" or previous == "Running" else "Pending"
           }
 
           # The reason latches with the phase (F2): once `previousPhase` is terminal,
           # `previousReason` is returned unchanged so a later revoke annotation can't
-          # overwrite why a run actually stopped.
-          _reasonOf = lambda phase: str, previousPhase: str, previousReason: any, revoked: any -> any {
-              previousReason if previousPhase in _TERMINAL_PHASES else "PodFailed" if phase == "Failed" else revoked if revoked in _REVOKE_REASONS else None
+          # overwrite why a run actually stopped. Disruption design §3's precedence:
+          # Disrupted, then PodLost, then PodFailed; a harness that failed on its own (C1) is PodFailed first.
+          _reasonOf = lambda phase: str, previousPhase: str, previousReason: any, revoked: any, lost: bool, disrupted: bool, crashed: bool -> any {
+              previousReason if previousPhase in _TERMINAL_PHASES else "PodFailed" if phase == "Failed" and crashed else "Disrupted" if phase == "Failed" and disrupted else "PodLost" if phase == "Failed" and lost else "PodFailed" if phase == "Failed" else revoked if revoked in _REVOKE_REASONS else None
+          }
+
+          # The Sandbox the composition last applied carries the gate once the run was
+          # Running (F12): like M2's finished-phase annotation, it outlives a lost status write.
+          _gated = lambda sandbox: any -> bool {
+              _gates = sandbox?.spec?.podTemplate?.spec?.schedulingGates or []
+              len([g for g in _gates if g?.name == _POD_LOST_GATE]) > 0
+          }
+
+          # Disruption design §3: a pod the kubelet or the control plane stopped for its node's sake
+          # (graceful node shutdown, eviction, preemption, PodGC) ends Failed with DisruptionTarget=True.
+          # A plain DELETE, a crash, an OOM kill or the deadline sets none.
+          _disruptedPod = lambda pod: any -> bool {
+              _get(pod?.status, "phase") == "Failed" and _condition(pod, "DisruptionTarget")?.status == "True"
+          }
+
+          # C1: how the harness container ended, from the run's pod; None while it runs. Its exit code
+          # outranks the pod's phase: a node shutdown or a DELETE during the sidecars' drain fails a pod whose
+          # run had finished. Left open: a pod gone before any reconcile read its terminated harness. Ready
+          # turns False at the harness's exit and triggers one, so that window is small.
+          _harnessEnd = lambda pod: any -> any {
+              _harnessEnds = [s.state.terminated for s in _get(pod?.status, "containerStatuses") or [] if s?.name == "harness" and s?.state?.terminated]
+              _harnessEnds[0] if _harnessEnds else None
+          }
+
+          # Whether the Sandbox controls the pod. A claim re-created under the same name could otherwise read
+          # the previous Sandbox's pod, draining or disrupted, which agent-sandbox refuses to adopt.
+          _ownedBy = lambda pod: any, sandbox: any -> bool {
+              _sandboxUid = _get(sandbox?.metadata, "uid")
+              _sandboxUid != None and len([o for o in _get(pod?.metadata, "ownerReferences") or [] if o?.uid == _sandboxUid]) > 0
+          }
+
+          # The pod the Sandbox reported Failed is no longer there to read: deleted (a deletionTimestamp, or
+          # gone) or already replaced (a Pending pod of the same name). A pod that failed on its own stays
+          # until this composition suspends the Sandbox. pods is _requiredPods' value.
+          _podGone = lambda pods: any -> bool {
+              _seen = pods[0] if pods else None
+              pods != None and (len(pods) == 0 or _get(_seen?.metadata, "deletionTimestamp") != None or _get(_seen?.status, "phase") == "Pending")
+          }
+
+          # The run's pod as Crossplane hands it over through required resources (function-kcl v0.12.2):
+          # [pod], or [] once it is gone. function-kcl always sets requiredResources, so a missing runPod is
+          # no pod; None only where nothing set requiredResources at all (kcl test).
+          _requiredPods = lambda params: any -> any {
+              _rr = _get(params, "requiredResources")
+              _items = _get(_rr, "runPod") or []
+              [_get(i, "Resource") for i in _items] if _rr != None else None
+          }
+
+          # Ask Crossplane for the run's pod, named after the Sandbox, which is named after the XR. Crossplane
+          # serves it from a cluster-wide informer: its ServiceAccount needs get, list and watch on pods.
+          _podRequirement = lambda _oxr: any -> [any] {
+              [{
+                  apiVersion = "meta.krm.kcl.dev/v1alpha1"
+                  kind = "RequiredResources"
+                  requirements = {
+                      runPod = {apiVersion = "v1", kind = "Pod", name = _oxr.metadata.name, namespace = _oxr.metadata.namespace}
+                  }
+              }]
           }
 
           # A malformed annotation is never projected; the last valid value stays. Nor is a
@@ -212,7 +293,7 @@ spec:
               _intro + (_write if role == "implementer" else _read) + _roomRules(role, roomRef)
           }
 
-          _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
+          _renderRun = lambda _oxr: any, _ocds: any, _dxr: any, _pods: any -> [any] {
               _name = _oxr.metadata.name
               _ns = _oxr.metadata.namespace
               assert _ns == "agents", "an AgentRun must live in namespace agents, got {}".format(_ns)
@@ -247,6 +328,8 @@ spec:
                   env = [
                       {name = "RUN_ID", value = _runId}
                       {name = "ROOM_ID", value = _roomRef}
+                      # The push classifier's own branch (CC-S5): unset, every push needs a human.
+                      {name = "BRANCH", value = _branch}
                       {name = "CONVERSATION_ID", value = _oxr.metadata?.uid or ""}
                       {name = "BROKER_URL", value = "https://{}:8443".format(_BROKER_FQDN)}
                       {name = "BROKER_CA_FILE", value = "/etc/room-broker-ca/ca.crt"}
@@ -267,6 +350,20 @@ spec:
                       {name = "room-token", mountPath = "/var/run/secrets/agents/room", readOnly = True}
                       {name = "room-broker-ca", mountPath = "/etc/room-broker-ca", readOnly = True}
                   ]
+              }] if _roomRef else []
+
+              # F15: the bridge's lease holds the log; this holds the work. A plain init
+              # container after the bridge, so the harness starts only once the bridge
+              # holds the room. A refusal (room_busy for 3 min, or sealed) exits 1, and
+              # restartPolicy Never fails the pod before the harness runs. Init containers
+              # take no probes.
+              _gate = [{
+                  name = "room-gate"
+                  image = _BRIDGE_IMAGE
+                  args = ["gate"]
+                  resources = {requests = {cpu = "10m", memory = "16Mi"}, limits = {cpu = "50m", memory = "32Mi"}}
+                  securityContext = _CONTAINER_SECURITY
+                  terminationMessagePolicy = "FallbackToLogsOnError"
               }] if _roomRef else []
               _roomVolumes = [
                   {name = "room-token", projected = {defaultMode = 288, sources = [{
@@ -292,7 +389,21 @@ spec:
               _finishedFor = _get(_sandbox?.metadata?.annotations, "agents.ogenki.io/finished-phase")
               _recovered = _statusPhase not in _TERMINAL_PHASES and _finishedFor in ["Succeeded", "Failed"] and _sandbox?.spec?.operatingMode == "Suspended"
               _prevPhase = _finishedFor if _recovered else _statusPhase
-              _phase = _phaseOf(_ann, _prevPhase, _sandbox)
+
+              # F12: once a run was Running its pod is scheduled for good, so an
+              # unscheduled pod is a replacement: the first was deleted or evicted. Our
+              # gate holds it (SchedulingGated). Before Running, an unscheduled pod is the
+              # first one, waiting for Kueue or for capacity.
+              _started = _prevPhase == "Running" or _gated(_sandbox)
+              _scheduled = _condition(_sandbox, "PodScheduled")
+              _lost = _started and _scheduled?.status == "False"
+              _runPod = _pods[0] if _pods and _ownedBy(_pods[0], _sandbox) else None
+              _disrupted = _disruptedPod(_runPod)
+              _exit = _harnessEnd(_runPod)
+              _exitCode = _exit?.exitCode
+              # 143 and 137 are the shutdown's own SIGTERM and SIGKILL: the disruption ended those.
+              _crashed = _exitCode != None and _exitCode not in [0, 137, 143]
+              _phase = _phaseOf(_ann, _prevPhase, _sandbox, _lost, _disrupted, _exitCode)
               _revoked = _get(_ann, "agents.ogenki.io/revoked")
               _validRevoke = _revoked in _REVOKE_REASONS
 
@@ -320,14 +431,19 @@ spec:
               # The inputs of the harness's PR footer (H-S3), each only when the run has it:
               # provenance hints, never authorisation (ruling TB).
               _footerEnv = ([{name = "ROOM_ID", value = _roomRef}] if _roomRef else []) + ([{name = "TASK_ID", value = _taskLabel}] if _taskLabel else []) + ([{name = "TASK_URL", value = _spec.task.url}] if _spec.task?.url else [])
+              # agent-run's final read on SIGTERM (disruption design §2): the bridge's health port, on loopback.
+              _bridgeEnv = [{name = "BRIDGE_URL", value = "http://127.0.0.1:{}".format(_BRIDGE_HEALTH_PORT)}] if _roomRef else []
 
               # `_get`, not `_previous?.reason`: a single-level `?.` miss on an
               # otherwise-present dict doesn't reliably compare `!= None` in KCL 0.11.3
               # (function-kcl's own dict-mutation gotcha's sibling) — `_get`'s explicit
               # `in`-check is the pattern already proven safe for `_revoked` above.
-              # A recovered Failed run had reason PodFailed; a Succeeded one had none.
-              _prevReason = ("PodFailed" if _finishedFor == "Failed" else None) if _recovered else _get(_previous, "reason")
-              _reason = _reasonOf(_phase, _prevPhase, _prevReason, _revoked)
+              # A recovered Failed run takes its reason from the Sandbox (M2), PodFailed
+              # if the annotation is missing or not one this composition writes; a
+              # Succeeded one had none.
+              _finishedWhy = _get(_sandbox?.metadata?.annotations, "agents.ogenki.io/finished-reason")
+              _prevReason = ((_finishedWhy if _finishedWhy in ["PodFailed", "PodLost", "Disrupted"] else "PodFailed") if _finishedFor == "Failed" else None) if _recovered else _get(_previous, "reason")
+              _reason = _reasonOf(_phase, _prevPhase, _prevReason, _revoked, _lost or _podGone(_pods), _disrupted, _crashed)
               _labels = {
                   "agents.ogenki.io/run-id" = _runId
                   "agents.ogenki.io/role" = _role
@@ -432,7 +548,7 @@ spec:
               _sandboxResource = [{
                   apiVersion = "agents.x-k8s.io/v1beta1"
                   kind = "Sandbox"
-                  metadata = _meta("sandbox", _name, _sandboxReady, {"agents.ogenki.io/finished-phase" = _phase} if _suspended else {})
+                  metadata = _meta("sandbox", _name, _sandboxReady, {"agents.ogenki.io/finished-phase" = _phase, "agents.ogenki.io/finished-reason" = _reason or ""} if _suspended else {})
                   spec = {
                       # Nothing ever dials into a sandbox (C4).
                       service = False
@@ -445,6 +561,11 @@ spec:
                           spec = {
                               serviceAccountName = _name
                               automountServiceAccountToken = False
+                              # From the first pod's binding: before it nothing has run, and
+                              # after it any new pod is a replacement. Waiting for Ready would
+                              # leave a window, one XR reconcile long, in which the task runs.
+                              if _started or _phase == "Running" or _scheduled?.status == "True":
+                                  schedulingGates = [{name = _POD_LOST_GATE}]
                               runtimeClassName = "gvisor"
                               restartPolicy = "Never"
                               activeDeadlineSeconds = _maxMinutes * 60
@@ -484,7 +605,7 @@ spec:
                                       {name = "sts-token", mountPath = "/var/run/secrets/agents/sts", readOnly = True}
                                       {name = "proxy-tmp", mountPath = "/tmp"}
                                   ]
-                              }] + _bridge
+                              }] + _bridge + _gate
                               containers = [{
                                   name = "harness"
                                   image = _profile.image
@@ -513,7 +634,7 @@ spec:
                                       # honours LMNR_TRACE_CONTENT and injects traceparent; lmnr's LiteLLM one does neither.
                                       {name = "LMNR_INSTRUMENTS", value = "openai"}
                                       {name = "LMNR_TRACE_CONTENT", value = "false"}
-                                  ] + ([{name = "TRACEPARENT", value = _tp}] if _tp else []) + _footerEnv
+                                  ] + ([{name = "TRACEPARENT", value = _tp}] if _tp else []) + _footerEnv + _bridgeEnv
                                   # No containerPort: agent-server listens on loopback only.
                                   # timeoutSeconds covers python3's start-up under gVisor
                                   # plus urlopen's own 2 s; kubelet's 1 s default would
@@ -521,8 +642,6 @@ spec:
                                   startupProbe = {exec.command = _localGet(_profile.port, "/ready"), periodSeconds = 5, failureThreshold = 60, timeoutSeconds = 5}
                                   readinessProbe = {exec.command = _localGet(_profile.port, "/ready"), periodSeconds = 10, timeoutSeconds = 5}
                                   livenessProbe = {exec.command = _localGet(_profile.port, "/health"), periodSeconds = 20, failureThreshold = 3, timeoutSeconds = 5}
-                                  if _profile?.preStop:
-                                      lifecycle.preStop.exec.command = _profile.preStop
                                   resources = {
                                       requests = {cpu = _size.cpu[0], memory = _size.memory[0], "ephemeral-storage" = "1Gi"}
                                       limits = {cpu = _size.cpu[1], memory = _size.memory[1], "ephemeral-storage" = _size.scratch}
@@ -569,8 +688,17 @@ spec:
                           startedAt = _sandbox.metadata.creationTimestamp
                       elif _previous?.startedAt:
                           startedAt = _previous.startedAt
-                      if _finished?.lastTransitionTime:
+                      if _prevPhase in _TERMINAL_PHASES and _previous?.finishedAt:
+                          # Latched with the phase: a Succeeded run latched at the harness's exit gets the
+                          # Sandbox's Finished only once the sidecars drained.
+                          finishedAt = _previous.finishedAt
+                      elif _finished?.lastTransitionTime:
                           finishedAt = _finished.lastTransitionTime
+                      elif _exit?.finishedAt:
+                          finishedAt = _exit.finishedAt
+                      elif _lost and _scheduled?.lastTransitionTime:
+                          # The replacement pod appeared when the first one was lost.
+                          finishedAt = _scheduled.lastTransitionTime
                       elif _previous?.finishedAt:
                           finishedAt = _previous.finishedAt
                       if _reason:
@@ -582,12 +710,12 @@ spec:
                   }
               }]
 
-              # The preStop revokes the GitHub token through api.github.com, and Crossplane
-              # deletes composed resources in parallel: the CNP could go first and strand the
-              # token for up to an hour. The Usage holds the CNP until the pod is gone, then
+              # agent-run revokes the GitHub token through api.github.com on its way out (disruption
+              # design §2), and Crossplane deletes composed resources in parallel: the CNP could go first and
+              # strand the token for up to an hour. The Usage holds the CNP until the pod is gone, then
               # replays its deletion. It is keyed on the Pod, not the Sandbox: a Sandbox has
-              # no finalizer and leaves the API while its pod still runs preStop and the
-              # SIGTERM cleanup, and the CNP went with it (seen live, 2026-09-27). Crossplane
+              # no finalizer and leaves the API while its pod still runs the SIGTERM cleanup,
+              # and the CNP went with it (seen live, 2026-09-27). Crossplane
               # reads the Pod with a plain GET, so it needs `get pods` in the run's namespace.
               _cnpUsage = [{
                   apiVersion = "protection.crossplane.io/v1beta1"
@@ -602,7 +730,12 @@ spec:
               _serviceAccount + _taskConfigMap + _networkPolicy + _cnpUsage + _sandboxResource + _status
           }
 
-          items = _render(oxr, ocds, option("params").dxr)
+          # The render without the pod: the Sandbox alone decides, as before the pod was read.
+          _render = lambda _oxr: any, _ocds: any, _dxr: any -> [any] {
+              _renderRun(_oxr, _ocds, _dxr, None)
+          }
+
+          items = _renderRun(oxr, ocds, option("params").dxr, _requiredPods(option("params"))) + _podRequirement(oxr)
   - step: ready
     functionRef:
       name: function-auto-ready

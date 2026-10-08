@@ -225,6 +225,12 @@ spec:
                 finishedAt:
                   type: string
                 reason:
+                  description: >-
+                    Why the run ended. Failed: Disrupted (its pod was stopped for its node: a graceful
+                    node shutdown, an eviction, a preemption), PodLost (its pod was deleted or vanished
+                    with its node), PodFailed (the harness failed: an error, a crash, out of memory, the
+                    deadline). Revoked and BudgetExhausted: the revocation reason (manual, budget-run,
+                    budget-principal, budget-fleet).
                   type: string
                 pullRequest:
                   type: string
