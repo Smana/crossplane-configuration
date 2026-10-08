@@ -62,9 +62,9 @@ _BROKER_FQDN = "room-broker.agent-system.svc.cluster.local"
 
 # SP2's room bridge (cloud-native-ref SP2 plan, ruling P6): a native sidecar after
 # identity-proxy, rendered only with roomRef, pinned by digest like the harness.
-# agent-platform v0.6.1 (SP2: rooms, approvals, fork and roomctl, the final read). v0.6.0's release
-# was cut short before roomctl and the CRD were attached, so nothing pins it.
-_BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.6.1@sha256:646f971bda5ed5c77b5c49f5a63f192e8194250da1660d57365ab70ad1dfeee3"
+# agent-platform v0.8.0: `room_progress` is read-only, so a progress note no longer asks a human
+# to approve it (v0.6.1 treated it as a write).
+_BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.8.0@sha256:8becdb250408a51943783f98f8d23eea6274a58c08442ade543137b97f4311ff"
 _BRIDGE_HEALTH_PORT = 8085
 
 # The kubelet signals the bridge only once the harness has exited, so a room

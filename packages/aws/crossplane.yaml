@@ -52,8 +52,11 @@ spec:
     #                       and gcp byte-identical to v0.9.0: a cluster on core
     #                       v0.9.0 kept harness v0.2.0. Like v0.8.1, an image-only
     #                       core change still needs the floor.
+    #   >=v0.9.1 -> v0.9.3  the AgentRun Composition's room-bridge v0.8.0
+    #                       (`room_progress` is read-only; v0.6.1 would ask a
+    #                       human to approve every progress note). Image-only.
     - configuration: ghcr.io/smana/crossplane-configuration-core
-      version: ">=v0.9.1"
+      version: ">=v0.9.3"
     # NO function dependsOn — deliberately. See Smana/cloud-native-ref#1971 and
     # the longer note in packages/core/crossplane.yaml. Declaring a function
     # here while the consuming repo also pins it creates two Function resources
