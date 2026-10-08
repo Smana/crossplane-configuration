@@ -31,7 +31,7 @@ spec:
       superuser: false
   atlasSchema:
     url: https://github.com/Smana/agent-platform
-    ref: main
+    ref: v0.6.1
     path: internal/store/migrations
   backup:
     schedule: "0 0 2 * * *"

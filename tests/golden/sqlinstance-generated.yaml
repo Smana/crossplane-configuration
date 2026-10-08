@@ -82,7 +82,7 @@ metadata:
 spec:
   interval: 10m
   ref:
-    branch: main
+    tag: v0.6.1
   url: https://github.com/Smana/agent-platform
 ---
 apiVersion: postgresql.cnpg.io/v1
