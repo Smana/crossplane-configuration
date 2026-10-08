@@ -449,7 +449,7 @@ test_readiness_follows_the_sandbox = lambda {
 # ---- S7: the openhands profile runs the repo-built harness image ----
 test_harness_profile_is_the_platform_image = lambda {
     _c = _pod(_run({})).containers[0]
-    # The version is test_the_harness_is_the_footer_build's to pin: this profile runs H-S3's harness.
+    # The version is test_the_harness_is_the_footer_build's to pin: this profile runs S5's harness.
     assert _c.image.startswith("ghcr.io/smana/agent-harness:"), "the openhands profile is the repo-built harness (S7)"
     assert "@sha256:" in _c.image, "pinned by digest"
     assert _c.args == [], "agent-run starts agent-server on 127.0.0.1:8000 itself"
@@ -700,7 +700,7 @@ test_the_harness_knows_its_factory_task = lambda {
 
 test_the_harness_is_the_footer_build = lambda {
     _image = _pod(_run({})).containers[0].image
-    assert _image.startswith("ghcr.io/smana/agent-harness:v0.2.0@sha256:"), "H-S3's released harness (SP2 design §5); the disruption build v0.3.0 is the next release"
+    assert _image.startswith("ghcr.io/smana/agent-harness:v0.3.0@sha256:"), "the released disruption build (S5), which carries H-S3's PR footer (SP2 design §5)"
     assert "@sha256:" in _image, "pinned by digest"
 }
 
