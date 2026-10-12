@@ -55,8 +55,10 @@ spec:
     #   >=v0.9.1 -> v0.9.3  the AgentRun Composition's room-bridge v0.8.0
     #                       (`room_progress` is read-only; v0.6.1 would ask a
     #                       human to approve every progress note). Image-only.
+    #   >=v0.9.3 -> v0.9.4  the AgentRun Composition's harness v0.9.0, now released by
+    #                       agent-platform. Image-only.
     - configuration: ghcr.io/smana/crossplane-configuration-core
-      version: ">=v0.9.3"
+      version: ">=v0.9.4"
     # NO function dependsOn — deliberately. See Smana/cloud-native-ref#1971 and
     # the longer note in packages/core/crossplane.yaml. Declaring a function
     # here while the consuming repo also pins it creates two Function resources
