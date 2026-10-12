@@ -211,8 +211,27 @@ test_data_class_picks_port_and_audience = lambda {
     assert _env.LLM_BASE_URL == "http://127.0.0.1:4002/v1"
     assert _env.MCP_URL == "http://127.0.0.1:4002/mcp"
     _router = [e for e in _kind(_res, "CiliumNetworkPolicy")[0].spec.egress if e.toEndpoints and e.toEndpoints[0].matchLabels["io.kubernetes.pod.namespace"] == "envoy-gateway-system"][0]
-    assert _router.toPorts[0].ports == [{port = "8081", protocol = "TCP"}, {port = "8082", protocol = "TCP"}], "internal runs reach only the internal and sts listeners"
+    assert _router.toPorts[0].ports == [{port = "8081", protocol = "TCP"}], "internal runs reach only the internal listener: no sts, so no GitHub token"
     assert {v.name: v for v in _pod(_res).volumes}["gateway-token"].projected.sources[0].serviceAccountToken.audience == "agent-router.tester.internal"
+}
+
+# T4/T5 (identity design §2, §7): an internal run has no direct GitHub egress and
+# no profile egress. It reads GitHub only through the gateway's read-only route.
+test_internal_run_has_no_direct_github_egress = lambda {
+    _spec = _kind(_run({role = "triager", dataClass = "internal"}), "CiliumNetworkPolicy")[0].spec
+    _egressRules = _spec.egress
+    assert not any e in _egressRules {
+        "toFQDNs" in e
+    }, "no FQDN egress at all"
+    _dns = [n.matchName for n in _spec.egress[0].toPorts[0].rules.dns]
+    assert not any n in _dns {
+        "github" in n
+    }, "kube-dns answers no GitHub name"
+}
+
+test_public_run_keeps_github_egress = lambda {
+    _fqdn = [e for e in _kind(_run({}), "CiliumNetworkPolicy")[0].spec.egress if e.toFQDNs][0]
+    assert [f.matchName for f in _fqdn.toFQDNs] == ["github.com", "api.github.com", "codeload.github.com", "objects.githubusercontent.com", "raw.githubusercontent.com"]
 }
 
 test_public_run_reaches_only_the_public_listener = lambda {

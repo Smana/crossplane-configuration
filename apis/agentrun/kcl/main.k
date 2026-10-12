@@ -294,7 +294,14 @@ _renderRun = lambda _oxr: any, _ocds: any, _dxr: any, _pods: any -> [any] {
     # so the proxy's watched_directory never reloads. Each token outlives the run instead,
     # which widens T8 to the deadline. 600 s is the apiserver's floor.
     _tokenTTL = max([600, _maxMinutes * 60])
-    _profiles = ["github"] + (_spec.egress?.profiles or [])
+
+    # T4/T5 (identity design §2, §7): an internal run has no direct GitHub or profile
+    # egress, and no sts port either, so it is never minted a GitHub token. It reads
+    # GitHub through the gateway's read-only route, which strips credentials. The XRD
+    # refuses the claim first; this holds if that rule is ever lost.
+    _internal = _class == "internal"
+    assert not (_internal and _spec.egress?.profiles), "an internal run takes no egress profiles (T5)"
+    _profiles = ([] if _internal else ["github"]) + (_spec.egress?.profiles or [])
     _fqdns = [f for p in _profiles for f in _EGRESS_PROFILES[p]]
     _roomRef = _spec.roomRef
 
@@ -499,7 +506,7 @@ _renderRun = lambda _oxr: any, _ocds: any, _dxr: any, _pods: any -> [any] {
                     toEndpoints = [{
                         matchLabels = {"io.kubernetes.pod.namespace" = "envoy-gateway-system", "gateway.envoyproxy.io/owning-gateway-name" = "agent-router", "gateway.envoyproxy.io/owning-gateway-namespace" = "agent-system"}
                     }]
-                    toPorts = [{ports = [{port = str(_ROUTER_PORT[_class]), protocol = "TCP"}, {port = str(_STS_PORT), protocol = "TCP"}]}]
+                    toPorts = [{ports = [{port = str(_ROUTER_PORT[_class]), protocol = "TCP"}] + ([] if _internal else [{port = str(_STS_PORT), protocol = "TCP"}])}]
                 }
                 {
                     # Spans to the collector's OTLP/HTTP traces path only (SO-4): neither its
@@ -512,11 +519,10 @@ _renderRun = lambda _oxr: any, _ocds: any, _dxr: any, _pods: any -> [any] {
                         rules.http = [{method = "POST", path = "/v1/traces"}]
                     }]
                 }
-                {
-                    toFQDNs = [{matchName = f} for f in _fqdns]
-                    toPorts = [{ports = [{port = "443", protocol = "TCP"}]}]
-                }
             ] + ([{
+                toFQDNs = [{matchName = f} for f in _fqdns]
+                toPorts = [{ports = [{port = "443", protocol = "TCP"}]}]
+            }] if _fqdns else []) + ([{
                 toEndpoints = [{
                     matchLabels = {"io.kubernetes.pod.namespace" = "agent-system", "app.kubernetes.io/name" = "room-broker"}
                 }]

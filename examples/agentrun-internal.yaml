@@ -1,0 +1,15 @@
+---
+# An internal run (a RunLore triager): no egress profiles, no direct GitHub egress and
+# no sts port, so its CNP reaches only the internal listener and in-cluster services.
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: AgentRun
+metadata:
+  name: xplane-run-t3q5m2ka
+  namespace: agents
+spec:
+  role: triager
+  repository: Smana/cloud-native-ref
+  principal: "system:factory"
+  dataClass: internal
+  task:
+    text: "Investigate the KubePodCrashLooping alert on flux-system/notification-controller."
