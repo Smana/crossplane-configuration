@@ -229,6 +229,19 @@ test_internal_run_has_no_direct_github_egress = lambda {
     }, "kube-dns answers no GitHub name"
 }
 
+# A room is in-cluster: an internal run keeps the broker, by name and port, and nothing public.
+test_internal_room_run_keeps_only_the_broker = lambda {
+    _spec = _kind(_run({role = "triager", dataClass = "internal", roomRef = "3kq7x2ma"}), "CiliumNetworkPolicy")[0].spec
+    _dns = [n.matchName for n in _spec.egress[0].toPorts[0].rules.dns]
+    assert _dns == ["agent-router.envoy-gateway-system.svc.cluster.local", "agent-traces-collector.observability.svc.cluster.local", "room-broker.agent-system.svc.cluster.local"]
+    _egressRules = _spec.egress
+    assert not any e in _egressRules {
+        "toFQDNs" in e
+    }, "no FQDN egress at all"
+    _broker = [e for e in _egressRules if e.toEndpoints and e.toEndpoints[0].matchLabels["app.kubernetes.io/name"] == "room-broker"]
+    assert len(_broker) == 1 and _broker[0].toPorts == [{ports = [{port = "8443", protocol = "TCP"}]}]
+}
+
 test_public_run_keeps_github_egress = lambda {
     _fqdn = [e for e in _kind(_run({}), "CiliumNetworkPolicy")[0].spec.egress if e.toFQDNs][0]
     assert [f.matchName for f in _fqdn.toFQDNs] == ["github.com", "api.github.com", "codeload.github.com", "objects.githubusercontent.com", "raw.githubusercontent.com"]

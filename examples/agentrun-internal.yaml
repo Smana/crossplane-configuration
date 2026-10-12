@@ -1,6 +1,7 @@
 ---
 # An internal run (a RunLore triager): no egress profiles, no direct GitHub egress and
-# no sts port, so its CNP reaches only the internal listener and in-cluster services.
+# no sts port, so its CNP reaches only the internal listener and in-cluster services,
+# the room broker included.
 apiVersion: cloud.ogenki.io/v1alpha1
 kind: AgentRun
 metadata:
@@ -13,3 +14,4 @@ spec:
   dataClass: internal
   task:
     text: "Investigate the KubePodCrashLooping alert on flux-system/notification-controller."
+  roomRef: 3kq7x2ma
