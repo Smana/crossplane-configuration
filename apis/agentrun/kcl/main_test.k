@@ -700,7 +700,7 @@ test_the_harness_knows_its_factory_task = lambda {
 
 test_the_harness_is_the_footer_build = lambda {
     _image = _pod(_run({})).containers[0].image
-    assert _image.startswith("ghcr.io/smana/agent-harness:v0.3.0@sha256:"), "the released disruption build (S5), which carries H-S3's PR footer (SP2 design §5)"
+    assert _image.startswith("ghcr.io/smana/agent-harness:v0.9.0@sha256:"), "the disruption build (S5) with H-S3's PR footer, released by agent-platform v0.9.0 (AI split S0)"
     assert "@sha256:" in _image, "pinned by digest"
 }
 
