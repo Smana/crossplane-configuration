@@ -72,7 +72,7 @@ spec:
         io.kubernetes.pod.namespace: envoy-gateway-system
     toPorts:
     - ports:
-      - port: "8081"
+      - port: "8080"
         protocol: TCP
       - port: "8082"
         protocol: TCP
@@ -199,13 +199,13 @@ spec:
         - name: MODEL
           value: tier-standard
         - name: DATA_CLASS
-          value: internal
+          value: public
         - name: CONVERSATION_ID
           value: ""
         - name: LLM_BASE_URL
-          value: http://127.0.0.1:4002/v1
+          value: http://127.0.0.1:4000/v1
         - name: MCP_URL
-          value: http://127.0.0.1:4002/mcp
+          value: http://127.0.0.1:4000/mcp
         - name: STS_URL
           value: http://127.0.0.1:4001/sts/exchange
         - name: TASK_FILE
@@ -464,7 +464,7 @@ spec:
           defaultMode: 288
           sources:
           - serviceAccountToken:
-              audience: agent-router.tester.internal
+              audience: agent-router.tester.public
               expirationSeconds: 14400
               path: token
       - name: sts-token
@@ -531,7 +531,7 @@ data:
     - When your work is ready for the next role, call room_handoff with the role, a summary and the commit you worked on, then finish.
     - Before you finish, record your review with room_verdict: approve or changes, a summary, and the commit you reviewed. A verdict does not merge anything.
   run.json: '{"runId": "k2m4q7wa", "role": "tester", "repository": "Smana/cloud-native-ref",
-    "baseRef": "agent/6f2kq3ma", "branch": "agent/6f2kq3ma", "dataClass": "internal",
+    "baseRef": "agent/6f2kq3ma", "branch": "agent/6f2kq3ma", "dataClass": "public",
     "model": "tier-standard", "principal": "system:factory"}'
   task.md: |
     Work on https://github.com/Smana/cloud-native-ref/pull/2090.

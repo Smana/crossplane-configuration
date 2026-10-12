@@ -18,7 +18,7 @@ spec:
   branch: agent/6f2kq3ma
   principal: "system:factory"
   model: tier-standard
-  dataClass: internal
+  dataClass: public
   task:
     url: "https://github.com/Smana/cloud-native-ref/pull/2090"
   budget:

@@ -58,6 +58,10 @@ spec:
                   message: "a reviewer run needs a pull request URL as its task"
                 - rule: "!has(self.task.url) || self.task.url.startsWith('https://github.com/' + self.repository + '/')"
                   message: "task.url must point into spec.repository"
+                # T4/T5 (identity design §2, R04): an internal run has no direct GitHub
+                # or profile egress. github is not in the profiles enum at all.
+                - rule: "self.dataClass != 'internal' || !has(self.egress) || !has(self.egress.profiles) || size(self.egress.profiles) == 0"
+                  message: "an internal run takes no egress profiles"
                 # The run profile is fixed at creation (C5, SP2 S9). agent-sandbox never
                 # patches a live pod and Crossplane re-renders the CNP, so an edit would
                 # widen egress mid-run or reach only a recreated pod. A field-level
@@ -188,7 +192,7 @@ spec:
                     - {rule: "self == oldSelf", message: "egress is immutable"}
                   properties:
                     profiles:
-                      description: FQDN profiles on top of github, which is always on.
+                      description: FQDN profiles on top of github, which every public run gets. An internal run takes none and has no direct GitHub egress.
                       type: array
                       default: []
                       maxItems: 4

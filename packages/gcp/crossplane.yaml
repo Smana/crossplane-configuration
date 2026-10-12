@@ -32,13 +32,14 @@ spec:
     # reads, then to v0.9.1 for the AgentRun harness v0.3.0 (an image-only core
     # change that v0.9.1 itself forgot to floor), then to v0.9.3 for room-bridge
     # v0.8.0 (also image-only), then to v0.9.4 for the harness v0.9.0 from
-    # agent-platform (image-only too) -- the two floors move
+    # agent-platform (image-only too), then to v0.9.5 for internal AgentRuns
+    # losing direct GitHub, profile and sts egress (T4/T5) -- the two floors move
     # together. A stale floor here fails silently: core is left at whatever
     # already satisfied it, and every claim is rejected on dry-run for a field
     # the cluster's XRD has never heard of (or, for a field with a default,
     # quietly pruned).
     - configuration: ghcr.io/smana/crossplane-configuration-core
-      version: ">=v0.9.4"
+      version: ">=v0.9.5"
     # The function dependsOn entries that used to live here are removed
     # deliberately. See Smana/cloud-native-ref#1971 and the longer note in
     # packages/core/crossplane.yaml.

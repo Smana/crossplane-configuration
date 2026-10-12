@@ -7,7 +7,7 @@ One gVisor-sandboxed coding-agent run (cloud-native-ref Agent Factory, SP1). Ren
 |---|---|---|
 | `ServiceAccount` (automount off, no RBAC) | the phase is terminal (any of the four) | observed |
 | `ConfigMap -task` (`task.md`, `rules.md`, `run.json`) | — | always |
-| `CiliumNetworkPolicy` (DNS L7 allowlist, the class's gateway port, octo-sts, the trace collector's POST /v1/traces, FQDN profiles) | — | always |
+| `CiliumNetworkPolicy` (DNS L7 allowlist, the class's gateway port, the trace collector's POST /v1/traces; `public` only: octo-sts, github and the FQDN profiles) | — | always |
 | `Sandbox` (`agents.x-k8s.io/v1beta1`, RuntimeClass `gvisor`, identity-proxy native sidecar) | revoked | Sandbox `Ready`, or the phase is terminal |
 
 With `roomRef`: a native sidecar `room-bridge` (SP2) and a `room-token` volume, audience
@@ -53,9 +53,12 @@ spec:
   budget:
     maxTokens: 2000000             # default; the only field an update may change
   egress:
-    profiles: [pypi]               # on top of github; pypi|npm|golang|crates
+    profiles: [pypi]               # public only, on top of github; pypi|npm|golang|crates
 ```
 
+- **`internal` runs** have no direct GitHub egress, no `sts` port (so no GitHub token) and no
+  profiles: the XRD and the composition both refuse `egress.profiles` on them (identity design
+  T4/T5). They read GitHub through the gateway's read-only route.
 - **Immutable after creation**: everything in `spec` except `budget.maxTokens`, including adding or
   removing an optional field (`branch`, `roomRef`, `queueName`). To change a run, start another.
 - `branch` defaults to `agent/<runId>`, `baseRef` to `main`, `model` to `agent-default`, `size` to
