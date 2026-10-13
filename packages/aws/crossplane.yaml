@@ -59,8 +59,9 @@ spec:
     #                       agent-platform. Image-only.
     #   >=v0.9.4 -> v0.9.5  AgentRun: internal runs lose direct GitHub, profile and
     #                       sts egress, and the XRD refuses profiles on them (T4/T5).
+    #   >=v0.9.5 -> v0.9.7  the AgentRun Composition's harness v0.10.0. Image-only.
     - configuration: ghcr.io/smana/crossplane-configuration-core
-      version: ">=v0.9.5"
+      version: ">=v0.9.7"
     # NO function dependsOn — deliberately. See Smana/cloud-native-ref#1971 and
     # the longer note in packages/core/crossplane.yaml. Declaring a function
     # here while the consuming repo also pins it creates two Function resources

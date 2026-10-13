@@ -30,7 +30,7 @@ _HARNESS_PROFILES = {
         # v0.3.0 (#2205, S5): H-S3's PR footer plus the disruption sequence. On SIGTERM it pushes a
         # checkpoint, then revokes the run's token, with no preStop.
         # The digest is the multi-arch index.
-        image = "ghcr.io/smana/agent-harness:v0.9.0@sha256:1bb8f00080ab74799c96a6d542927077024b85f1b88b4100ff745398741bd0e5"
+        image = "ghcr.io/smana/agent-harness:v0.10.0@sha256:c2419c7f8486ef91ae416c6fa86d33f8fee7c0814fd22c7b713ff4d488944521"
         port = 8000
         # agent-run, the image's entrypoint, starts agent-server on
         # 127.0.0.1:8000 itself. Its API is unauthenticated, so it stays off the
