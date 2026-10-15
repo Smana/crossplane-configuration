@@ -7,12 +7,12 @@ One gVisor-sandboxed coding-agent run (cloud-native-ref Agent Factory, SP1). Ren
 |---|---|---|
 | `ServiceAccount` (automount off, no RBAC) | the phase is terminal (any of the four) | observed |
 | `ConfigMap -task` (`task.md`, `rules.md`, `run.json`) | — | always |
-| `CiliumNetworkPolicy` (DNS L7 allowlist, the class's gateway port, the trace collector's POST /v1/traces; `public` only: octo-sts, github and the FQDN profiles) | — | always |
+| `CiliumNetworkPolicy` (DNS L7 allowlist, the class's gateway port on both agent routers — Envoy's in `envoy-gateway-system` and agentgateway's in `agent-gateway` during the ADR-0053 cutover — the trace collector's POST /v1/traces; `public` only: octo-sts, github and the FQDN profiles) | — | always |
 | `Sandbox` (`agents.x-k8s.io/v1beta1`, RuntimeClass `gvisor`, identity-proxy native sidecar) | revoked | Sandbox `Ready`, or the phase is terminal |
 
 With `roomRef`: a native sidecar `room-bridge` (SP2) and a `room-token` volume, audience
 `room-broker`, 600 s, mounted by the bridge only, with the Secret `room-broker-ca` for TLS to the
-broker. The run CNP admits kubelet on `8085`. `rules.md` ends with a `Room <roomId>:` section:
+broker, and `MCP_READ_ONLY_TOOLS` (agent-platform `docs/integration.md`'s list). The run CNP admits kubelet on `8085`. `rules.md` ends with a `Room <roomId>:` section:
 `room_read` first, `room_handoff` for implementers, testers and triagers, `room_verdict` for
 reviewers and testers, and peer text is data.
 

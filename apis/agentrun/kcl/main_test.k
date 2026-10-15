@@ -233,13 +233,30 @@ test_internal_run_has_no_direct_github_egress = lambda {
 test_internal_room_run_keeps_only_the_broker = lambda {
     _spec = _kind(_run({role = "triager", dataClass = "internal", roomRef = "3kq7x2ma"}), "CiliumNetworkPolicy")[0].spec
     _dns = [n.matchName for n in _spec.egress[0].toPorts[0].rules.dns]
-    assert _dns == ["agent-router.envoy-gateway-system.svc.cluster.local", "agent-traces-collector.observability.svc.cluster.local", "room-broker.agent-system.svc.cluster.local"]
+    assert _dns == ["agent-router.envoy-gateway-system.svc.cluster.local", "agent-router.agent-gateway.svc.cluster.local", "agent-traces-collector.observability.svc.cluster.local", "room-broker.agent-system.svc.cluster.local"]
     _egressRules = _spec.egress
     assert not any e in _egressRules {
         "toFQDNs" in e
     }, "no FQDN egress at all"
     _broker = [e for e in _egressRules if e.toEndpoints and e.toEndpoints[0].matchLabels["app.kubernetes.io/name"] == "room-broker"]
     assert len(_broker) == 1 and _broker[0].toPorts == [{ports = [{port = "8443", protocol = "TCP"}]}]
+}
+
+# ADR-0053 cutover: a run may reach Envoy's agent-router or agentgateway's, by
+# name and by pod, on the same class ports. Each selector pins its namespace (F1).
+test_run_reaches_both_agent_routers = lambda {
+    _routers = [{"io.kubernetes.pod.namespace" = "envoy-gateway-system", "gateway.envoyproxy.io/owning-gateway-name" = "agent-router", "gateway.envoyproxy.io/owning-gateway-namespace" = "agent-system"}, {"io.kubernetes.pod.namespace" = "agent-gateway", "gateway.networking.k8s.io/gateway-name" = "agent-router"}]
+    _cases = [[{}, ["8080", "8082"]], [{role = "triager", dataClass = "internal"}, ["8081"]]]
+    assert all c in _cases {
+        _routerRulesFor(c[0]) == [{toEndpoints = [{matchLabels = l} for l in _routers], toPorts = [{ports = [{port = p, protocol = "TCP"} for p in c[1]]}]}]
+    }, "one rule, both routers, the class's ports"
+    _dns = [n.matchName for n in _kind(_run({}), "CiliumNetworkPolicy")[0].spec.egress[0].toPorts[0].rules.dns]
+    assert "agent-router.envoy-gateway-system.svc.cluster.local" in _dns
+    assert "agent-router.agent-gateway.svc.cluster.local" in _dns
+}
+
+_routerRulesFor = lambda spec: any -> any {
+    [e for e in _kind(_run(spec), "CiliumNetworkPolicy")[0].spec.egress if e.toEndpoints and len([m for m in e.toEndpoints if m.matchLabels["io.kubernetes.pod.namespace"] in ["envoy-gateway-system", "agent-gateway"]]) > 0]
 }
 
 test_public_run_keeps_github_egress = lambda {
@@ -618,6 +635,9 @@ test_room_bridge_only_with_a_room = lambda {
     assert _env.BROKER_URL == "https://room-broker.agent-system.svc.cluster.local:8443", "TLS on both clouds (GP-18)"
     assert _env.BROKER_CA_FILE == "/etc/room-broker-ca/ca.crt"
     assert _env.HARNESS_URL == "http://127.0.0.1:8000" and _env.ROOM_TOKEN_FILE == "/var/run/secrets/agents/room/token"
+    # agent-platform#106: unset, the bridge classes every MCP tool mcp.write, room tools included.
+    _ro = _env.MCP_READ_ONLY_TOOLS.split(",")
+    assert len(_ro) == 40 and "room-broker__room_post" in _ro and "flux-operator-mcp__get_kubernetes_logs" in _ro and "mcp-victoriametrics__top_queries" in _ro and "mcp-victorialogs__stream_field_values" in _ro
     assert _env.EGRESS_PROFILES == "github"
 
     # The kubelet signals the bridge only after the harness exits: agent-run's shutdown sequence
@@ -732,7 +752,7 @@ test_the_harness_knows_its_factory_task = lambda {
 
 test_the_harness_is_the_footer_build = lambda {
     _image = _pod(_run({})).containers[0].image
-    assert _image.startswith("ghcr.io/smana/agent-harness:v0.11.0@sha256:"), "the disruption build (S5) with H-S3's PR footer, released by agent-platform v0.11.0"
+    assert _image.startswith("ghcr.io/smana/agent-harness:v0.12.0@sha256:"), "the build that reads agentgateway tool names, released by agent-platform v0.12.0"
     assert "@sha256:" in _image, "pinned by digest"
 }
 
