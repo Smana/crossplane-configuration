@@ -50,8 +50,10 @@ spec:
                   # Released by agent-platform v0.9.0 (AI split S0) from the source cloud-native-ref released as
                   # v0.3.0 (#2205, S5): H-S3's PR footer plus the disruption sequence. On SIGTERM it pushes a
                   # checkpoint, then revokes the run's token, with no preStop.
+                  # agent-platform v0.12.0 (#117): finds room_progress under agentgateway's `<server>_<tool>`
+                  # name too, and sends traceparent on MCP calls.
                   # The digest is the multi-arch index.
-                  image = "ghcr.io/smana/agent-harness:v0.11.0@sha256:1880d83ec95d7bb633a1580f1b34acae21c42d7ff06006f93070b60995107a59"
+                  image = "ghcr.io/smana/agent-harness:v0.12.0@sha256:65c664bf6ce53362dc693bb8c8925e4aed37ecac0e84fd607feab0c79fbd2a6e"
                   port = 8000
                   # agent-run, the image's entrypoint, starts agent-server on
                   # 127.0.0.1:8000 itself. Its API is unauthenticated, so it stays off the
@@ -79,14 +81,31 @@ spec:
 
           # Fully qualified, so ndots:1 sends them to kube-dns as-is and the L7 DNS rule
           # can answer exactly these names (Q4).
-          _ROUTER_FQDN = "agent-router.envoy-gateway-system.svc.cluster.local"
+          # Both agent routers during the cutover (ADR-0053): Envoy's until CC-AGW2,
+          # agentgateway's after. Which one a run calls is the identity-proxy's config.
+          _ROUTER_FQDNS = ["agent-router.envoy-gateway-system.svc.cluster.local", "agent-router.agent-gateway.svc.cluster.local"]
+          _ROUTER_ENDPOINTS = [
+              {"io.kubernetes.pod.namespace" = "envoy-gateway-system", "gateway.envoyproxy.io/owning-gateway-name" = "agent-router", "gateway.envoyproxy.io/owning-gateway-namespace" = "agent-system"}
+              {"io.kubernetes.pod.namespace" = "agent-gateway", "gateway.networking.k8s.io/gateway-name" = "agent-router"}
+          ]
           _BROKER_FQDN = "room-broker.agent-system.svc.cluster.local"
 
           # SP2's room bridge (cloud-native-ref SP2 plan, ruling P6): a native sidecar after
           # identity-proxy, rendered only with roomRef, pinned by digest like the harness.
-          # agent-platform v0.8.0: `room_progress` is read-only, so a progress note no longer asks a human
-          # to approve it (v0.6.1 treated it as a write).
-          _BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.8.0@sha256:8becdb250408a51943783f98f8d23eea6274a58c08442ade543137b97f4311ff"
+          # agent-platform v0.12.0: reads agentgateway's `<server>_<tool>` names (#117), and takes its
+          # read-only MCP set from MCP_READ_ONLY_TOOLS (#106).
+          _BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.12.0@sha256:4895836acdb61dc4e0121f60c2b27eabbb2d1a45501705ae73653dbc8fcdb0ec"
+
+          # The MCP tools the bridge lets through as plain; every other one is mcp.write and waits for
+          # approval. Unset, that includes the room tools (#106 fails closed). agent-platform
+          # docs/integration.md owns the list; the room tools only append to the room.
+          _MCP_READ_ONLY = {
+              "flux-operator-mcp" = ["search_flux_docs", "get_flux_instance", "get_kubernetes_api_versions", "get_kubernetes_resources", "get_kubernetes_metrics", "get_kubernetes_logs"]
+              "mcp-victoriametrics" = ["documentation", "query", "query_range", "metrics", "metrics_metadata", "labels", "label_values", "series", "alerts", "rules", "explain_query", "prettify_query", "metric_statistics", "tsdb_status", "active_queries", "top_queries"]
+              "mcp-victorialogs" = ["documentation", "query", "hits", "facets", "field_names", "field_values", "stats_query", "stats_query_range", "streams", "stream_ids", "stream_field_names", "stream_field_values", "flags"]
+              "room-broker" = ["room_read", "room_post", "room_progress", "room_handoff", "room_verdict"]
+          }
+          _MCP_READ_ONLY_TOOLS = ",".join(["{}__{}".format(srv, t) for srv, tools in _MCP_READ_ONLY for t in tools])
           _BRIDGE_HEALTH_PORT = 8085
 
           # The kubelet signals the bridge only once the harness has exited, so a room
@@ -345,6 +364,7 @@ spec:
                       {name = "ROOM_TOKEN_FILE", value = "/var/run/secrets/agents/room/token"}
                       {name = "EGRESS_PROFILES", value = ",".join(_profiles)}
                       {name = "FLUSH_GRACE", value = _BRIDGE_FLUSH_GRACE}
+                      {name = "MCP_READ_ONLY_TOOLS", value = _MCP_READ_ONLY_TOOLS}
                   ]
                   ports = [{name = "bridge-health", containerPort = _BRIDGE_HEALTH_PORT, protocol = "TCP"}]
                   # Process-only until the harness first answers (ruling P6): this startup
@@ -493,7 +513,7 @@ spec:
                       "run.json" = json.encode({runId = _runId, role = _role, repository = _repo, baseRef = _baseRef, branch = _branch, dataClass = _class, model = _model, principal = _spec.principal})
                   }
               }]
-              _dnsNames = [_ROUTER_FQDN, _TRACES_FQDN] + ([_BROKER_FQDN] if _roomRef else []) + _fqdns
+              _dnsNames = _ROUTER_FQDNS + [_TRACES_FQDN] + ([_BROKER_FQDN] if _roomRef else []) + _fqdns
               _networkPolicy = [{
                   apiVersion = "cilium.io/v2"
                   kind = "CiliumNetworkPolicy"
@@ -523,10 +543,8 @@ spec:
                               # an App claim can create its own Gateway named "agent-router"
                               # in its own namespace, and without the namespace pin that
                               # tenant Gateway's data-plane pods would match too — an
-                              # exfiltration relay for every run's tokens.
-                              toEndpoints = [{
-                                  matchLabels = {"io.kubernetes.pod.namespace" = "envoy-gateway-system", "gateway.envoyproxy.io/owning-gateway-name" = "agent-router", "gateway.envoyproxy.io/owning-gateway-namespace" = "agent-system"}
-                              }]
+                              # exfiltration relay for every run's tokens. Both selectors pin a namespace.
+                              toEndpoints = [{matchLabels = l} for l in _ROUTER_ENDPOINTS]
                               toPorts = [{ports = [{port = str(_ROUTER_PORT[_class]), protocol = "TCP"}] + ([] if _internal else [{port = str(_STS_PORT), protocol = "TCP"}])}]
                           }
                           {

@@ -50,6 +50,7 @@ spec:
       rules:
         dns:
         - matchName: agent-router.envoy-gateway-system.svc.cluster.local
+        - matchName: agent-router.agent-gateway.svc.cluster.local
         - matchName: agent-traces-collector.observability.svc.cluster.local
         - matchName: github.com
         - matchName: api.github.com
@@ -61,6 +62,9 @@ spec:
         gateway.envoyproxy.io/owning-gateway-name: agent-router
         gateway.envoyproxy.io/owning-gateway-namespace: agent-system
         io.kubernetes.pod.namespace: envoy-gateway-system
+    - matchLabels:
+        gateway.networking.k8s.io/gateway-name: agent-router
+        io.kubernetes.pod.namespace: agent-gateway
     toPorts:
     - ports:
       - port: "8080"
@@ -191,7 +195,7 @@ spec:
           value: openai
         - name: LMNR_TRACE_CONTENT
           value: "false"
-        image: ghcr.io/smana/agent-harness:v0.11.0@sha256:1880d83ec95d7bb633a1580f1b34acae21c42d7ff06006f93070b60995107a59
+        image: ghcr.io/smana/agent-harness:v0.12.0@sha256:65c664bf6ce53362dc693bb8c8925e4aed37ecac0e84fd607feab0c79fbd2a6e
         livenessProbe:
           exec:
             command:
