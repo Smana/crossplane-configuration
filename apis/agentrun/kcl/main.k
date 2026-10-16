@@ -30,9 +30,10 @@ _HARNESS_PROFILES = {
         # v0.3.0 (#2205, S5): H-S3's PR footer plus the disruption sequence. On SIGTERM it pushes a
         # checkpoint, then revokes the run's token, with no preStop.
         # agent-platform v0.12.0 (#117): finds room_progress under agentgateway's `<server>_<tool>`
-        # name too, and sends traceparent on MCP calls.
+        # name too, and sends traceparent on MCP calls. v0.13.0 (#120): each MCP call's traceparent
+        # comes from the step that made it.
         # The digest is the multi-arch index.
-        image = "ghcr.io/smana/agent-harness:v0.12.0@sha256:65c664bf6ce53362dc693bb8c8925e4aed37ecac0e84fd607feab0c79fbd2a6e"
+        image = "ghcr.io/smana/agent-harness:v0.13.0@sha256:a6bbd8e345a7fc0a216863c04e9e5e8a7f4ca7cb21b2fb89ca26e49ba58f34ec"
         port = 8000
         # agent-run, the image's entrypoint, starts agent-server on
         # 127.0.0.1:8000 itself. Its API is unauthenticated, so it stays off the
@@ -70,8 +71,8 @@ _BROKER_FQDN = "room-broker.agent-system.svc.cluster.local"
 # SP2's room bridge (cloud-native-ref SP2 plan, ruling P6): a native sidecar after
 # identity-proxy, rendered only with roomRef, pinned by digest like the harness.
 # agent-platform v0.12.0: reads agentgateway's `<server>_<tool>` names (#117), and takes its
-# read-only MCP set from MCP_READ_ONLY_TOOLS (#106).
-_BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.12.0@sha256:4895836acdb61dc4e0121f60c2b27eabbb2d1a45501705ae73653dbc8fcdb0ec"
+# read-only MCP set from MCP_READ_ONLY_TOOLS (#106). v0.13.0 ships it unchanged, beside the harness.
+_BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.13.0@sha256:d91f284063dadb5346ecb0ac985e94bf0ab78098a449dc4d8df6ed6701152158"
 
 # The MCP tools the bridge lets through as plain; every other one is mcp.write and waits for
 # approval. Unset, that includes the room tools (#106 fails closed). agent-platform

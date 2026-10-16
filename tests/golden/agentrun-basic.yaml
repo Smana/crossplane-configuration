@@ -190,7 +190,7 @@ spec:
           value: openai
         - name: LMNR_TRACE_CONTENT
           value: "false"
-        image: ghcr.io/smana/agent-harness:v0.12.0@sha256:65c664bf6ce53362dc693bb8c8925e4aed37ecac0e84fd607feab0c79fbd2a6e
+        image: ghcr.io/smana/agent-harness:v0.13.0@sha256:a6bbd8e345a7fc0a216863c04e9e5e8a7f4ca7cb21b2fb89ca26e49ba58f34ec
         livenessProbe:
           exec:
             command:

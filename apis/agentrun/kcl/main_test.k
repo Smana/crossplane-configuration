@@ -752,7 +752,7 @@ test_the_harness_knows_its_factory_task = lambda {
 
 test_the_harness_is_the_footer_build = lambda {
     _image = _pod(_run({})).containers[0].image
-    assert _image.startswith("ghcr.io/smana/agent-harness:v0.12.0@sha256:"), "the build that reads agentgateway tool names, released by agent-platform v0.12.0"
+    assert _image.startswith("ghcr.io/smana/agent-harness:v0.13.0@sha256:"), "the build that sends each MCP call's traceparent from its own step, released by agent-platform v0.13.0"
     assert "@sha256:" in _image, "pinned by digest"
 }
 
