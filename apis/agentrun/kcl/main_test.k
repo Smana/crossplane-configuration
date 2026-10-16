@@ -1142,7 +1142,7 @@ test_suspendable_workspace_is_a_pvc = lambda {
     _sbx = _kind(_suspendRender({}, {}, {}), "Sandbox")[0]
     assert _sbx.spec.volumeClaimTemplates == [{
         metadata.name = "workspace"
-        spec = {accessModes = ["ReadWriteOnce"], storageClassName = "agent-workspace", resources.requests.storage = "10Gi"}
+        spec = {accessModes = ["ReadWriteOnce"], resources.requests.storage = "10Gi"}
     }]
     assert "workspace" not in [v.name for v in _sbx.spec.podTemplate.spec.volumes], "agent-sandbox adds the PVC volume"
     _env = {e.name: e.value for e in _sbx.spec.podTemplate.spec.containers[0].env}

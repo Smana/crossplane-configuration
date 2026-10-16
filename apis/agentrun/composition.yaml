@@ -609,11 +609,11 @@ spec:
                       service = False
                       operatingMode = "Suspended" if _suspended or _parked else "Running"
                       # The PVC outlives the pod (agent-sandbox names it workspace-<sandbox>) and dies with
-                      # the Sandbox. The class is the host's, one per cloud (ai-native-ref agent-workspace).
+                      # the Sandbox. No class: the cluster default is the host's storage_class (HOST-CONTRACT H3).
                       if _suspendable:
                           volumeClaimTemplates = [{
                               metadata.name = "workspace"
-                              spec = {accessModes = ["ReadWriteOnce"], storageClassName = "agent-workspace", resources.requests.storage = _size.scratch}
+                              spec = {accessModes = ["ReadWriteOnce"], resources.requests.storage = _size.scratch}
                           }]
                       podTemplate = {
                           metadata = {

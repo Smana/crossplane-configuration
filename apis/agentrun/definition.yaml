@@ -217,7 +217,7 @@ spec:
                 suspendable:
                   description: >-
                     The run may be suspended while it waits on a human (warm-sandboxes design §6):
-                    /workspace becomes a PVC of the size's scratch, and the annotations
+                    /workspace becomes a PVC of the size's scratch, in the cluster's default class, and the annotations
                     agents.ogenki.io/operating-mode and agents.ogenki.io/remaining-seconds suspend
                     and resume it. Unset, both annotations are ignored.
                   type: boolean

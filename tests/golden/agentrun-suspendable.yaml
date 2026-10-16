@@ -503,7 +503,6 @@ spec:
       resources:
         requests:
           storage: 10Gi
-      storageClassName: agent-workspace
 ---
 apiVersion: v1
 data:
