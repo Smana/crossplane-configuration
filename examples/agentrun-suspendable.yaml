@@ -1,0 +1,21 @@
+---
+# Suspendable AgentRun (warm-sandboxes design §6): an implementer in an attended room, which the
+# factory may suspend while an approval waits on a human. /workspace is a PVC, and the resumed
+# pod's deadline is what the factory counted as left of the run's running time.
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: AgentRun
+metadata:
+  name: xplane-run-s7uspnd2
+  namespace: agents
+  annotations:
+    agents.ogenki.io/operating-mode: Running
+    agents.ogenki.io/remaining-seconds: "3600"
+spec:
+  role: implementer
+  repository: Smana/cloud-native-ref
+  principal: "human:312345678901234567"
+  dataClass: public
+  roomRef: k3j5m7n2
+  suspendable: true
+  task:
+    text: "Fix the broken relative link in docs/superpowers/README.md."

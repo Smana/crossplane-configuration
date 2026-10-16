@@ -1104,3 +1104,147 @@ test_the_harness_calls_its_bridge_on_loopback = lambda {
     assert _env.BRIDGE_URL == "http://127.0.0.1:8085", "agent-run's final read (disruption design §2)"
     assert "BRIDGE_URL" not in {e.name: e.value for e in _pod(_run({})).containers[0].env}, "no room, no bridge"
 }
+
+# ---- Warm-sandboxes design §6: a suspendable run is suspended while it waits on a human ----
+_SUSPEND = {"agents.ogenki.io/operating-mode" = "Suspended"}
+_RESUME = {"agents.ogenki.io/operating-mode" = "Running"}
+_READY = [{type = "Ready", status = "True"}, {type = "PodScheduled", status = "True", reason = "PodScheduled"}]
+
+# The Sandbox as the composition last applied it, in `mode`, with `conditions`.
+_parkedSandbox = lambda mode: str, gated: bool, conditions: [any] -> any {
+    {
+        "xplane-run-7f3cq2xz-sandbox" = {
+            Resource = {
+                metadata = {creationTimestamp = "2026-09-25T10:00:00Z", uid = _SANDBOX_UID}
+                spec = {operatingMode = mode, podTemplate.spec.schedulingGates = [{name = "agents.ogenki.io/pod-lost"}] if gated else []}
+                status.conditions = conditions
+            }
+        }
+    }
+}
+
+_suspendRender = lambda annotations: any, status: any, observed: any -> [any] {
+    _render(_xr({suspendable = True, roomRef = "k3j5m7n2"}, annotations, {}, status), observed, _DXR)
+}
+
+test_suspendable_absent_renders_today = lambda {
+    _res = _render(_xr({}, _SUSPEND, {}, {phase = "Running"}), _appliedSandbox(True, _READY), _DXR)
+    _sbx = _kind(_res, "Sandbox")[0]
+    assert "volumeClaimTemplates" not in _sbx.spec
+    assert _sbx.spec.operatingMode == "Running", "the annotation means nothing to an unsuspendable run"
+    assert _status(_res).phase == "Running"
+    _vols = {v.name: v for v in _sbx.spec.podTemplate.spec.volumes}
+    assert "emptyDir" in _vols["workspace"]
+    assert "AGENT_SUSPENDABLE" not in [e.name for e in _sbx.spec.podTemplate.spec.containers[0].env]
+}
+
+test_suspendable_workspace_is_a_pvc = lambda {
+    _sbx = _kind(_suspendRender({}, {}, {}), "Sandbox")[0]
+    assert _sbx.spec.volumeClaimTemplates == [{
+        metadata.name = "workspace"
+        spec = {accessModes = ["ReadWriteOnce"], resources.requests.storage = "10Gi"}
+    }]
+    assert "workspace" not in [v.name for v in _sbx.spec.podTemplate.spec.volumes], "agent-sandbox adds the PVC volume"
+    _env = {e.name: e.value for e in _sbx.spec.podTemplate.spec.containers[0].env}
+    assert _env["AGENT_SUSPENDABLE"] == "true"
+}
+
+test_suspend_asked_while_running = lambda {
+    _res = _suspendRender(_SUSPEND, {phase = "Running"}, _parkedSandbox("Running", True, _READY))
+    _sbx = _kind(_res, "Sandbox")[0]
+    assert _status(_res).phase == "Suspended" and "reason" not in _status(_res)
+    assert _sbx.spec.operatingMode == "Suspended"
+    assert "schedulingGates" not in _sbx.spec.podTemplate.spec, "the resumed pod must schedule"
+    assert "agents.ogenki.io/finished-phase" not in _sbx.metadata.annotations, "not finished: M2 must never recover it"
+    assert "ServiceAccount" in [r.kind for r in _res], "the resumed pod runs as the same SA"
+    assert _sbx.metadata.annotations["krm.kcl.dev/ready"] == "True", "the XR does not flap while suspended"
+}
+
+test_suspend_ignored_before_running = lambda {
+    _res = _suspendRender(_SUSPEND, {phase = "Pending"}, _parkedSandbox("Running", False, [{type = "Ready", status = "False"}]))
+    assert _status(_res).phase == "Pending"
+    assert _kind(_res, "Sandbox")[0].spec.operatingMode == "Running"
+}
+
+test_suspending_pod_failure_is_not_a_failure = lambda {
+    # The harness exits 143 on the suspend's SIGTERM and its pod ends Failed.
+    _ending = [{type = "Ready", status = "False"}, {type = "Finished", status = "True", reason = "PodFailed"}]
+    _res = _suspendRender(_SUSPEND, {phase = "Suspended"}, _parkedSandbox("Suspended", False, _ending))
+    assert _status(_res).phase == "Suspended" and "reason" not in _status(_res)
+    assert _kind(_res, "Sandbox")[0].spec.operatingMode == "Suspended"
+}
+
+test_suspend_holds_until_the_pod_is_gone = lambda {
+    # Decided while the old pod still drains: Running now would keep that pod and its PodFailed.
+    _draining = [{type = "Ready", status = "False"}, {type = "Suspended", status = "False", reason = "PodTerminating"}]
+    _res = _suspendRender(_RESUME, {phase = "Suspended"}, _parkedSandbox("Suspended", False, _draining))
+    assert _status(_res).phase == "Suspended"
+    assert _kind(_res, "Sandbox")[0].spec.operatingMode == "Suspended"
+}
+
+test_resume_after_pod_gone = lambda {
+    _gone = [{type = "Ready", status = "False", reason = "SandboxSuspended"}, {type = "Suspended", status = "True", reason = "PodTerminated"}]
+    _res = _suspendRender(_RESUME, {phase = "Suspended"}, _parkedSandbox("Suspended", False, _gone))
+    _sbx = _kind(_res, "Sandbox")[0]
+    assert _status(_res).phase == "Suspended", "resuming: Running once the new pod is Ready"
+    assert _sbx.spec.operatingMode == "Running"
+    assert "schedulingGates" not in _sbx.spec.podTemplate.spec
+    # The next reconcile: the Sandbox is Running, its pod waits for a node.
+    _waiting = [{type = "Ready", status = "False"}, {type = "Suspended", status = "False", reason = "NotSuspended"}, {type = "PodScheduled", status = "False", reason = "Unschedulable"}]
+    _next = _suspendRender(_RESUME, {phase = "Suspended"}, _parkedSandbox("Running", False, _waiting))
+    assert _status(_next).phase == "Suspended" and "reason" not in _status(_next), "a pod waiting for a node is not lost"
+    assert _kind(_next, "Sandbox")[0].spec.operatingMode == "Running"
+}
+
+test_resume_gates_once_scheduled = lambda {
+    _bound = [{type = "Ready", status = "False"}, {type = "PodScheduled", status = "True", reason = "PodScheduled"}]
+    _res = _suspendRender(_RESUME, {phase = "Suspended"}, _parkedSandbox("Running", False, _bound))
+    assert _pod(_res).schedulingGates == [{name = "agents.ogenki.io/pod-lost"}]
+}
+
+test_resumed_ready_is_running = lambda {
+    _res = _suspendRender(_RESUME, {phase = "Suspended"}, _parkedSandbox("Running", True, _READY))
+    assert _status(_res).phase == "Running"
+    # Removing the annotation is the same as Running.
+    assert _status(_suspendRender({}, {phase = "Suspended"}, _parkedSandbox("Running", True, _READY))).phase == "Running"
+}
+
+test_resumed_replacement_is_lost = lambda {
+    _res = _suspendRender(_RESUME, {phase = "Suspended"}, _parkedSandbox("Running", True, _HELD))
+    assert _status(_res).phase == "Failed" and _status(_res).reason == "PodLost"
+}
+
+test_remaining_seconds_sets_deadline_and_ttl = lambda {
+    _res = _suspendRender(_RESUME | {"agents.ogenki.io/remaining-seconds" = "900"}, {phase = "Suspended"}, {})
+    _spec = _pod(_res)
+    assert _spec.activeDeadlineSeconds == 900
+    _vols = {v.name: v for v in _spec.volumes}
+    assert [_vols[n].projected.sources[0].serviceAccountToken.expirationSeconds for n in ["gateway-token", "sts-token"]] == [900, 900]
+}
+
+test_remaining_seconds_is_capped = lambda {
+    _spec30 = {suspendable = True, budget = {maxMinutes = 30}}
+    _deadline = lambda left: str -> int {
+        _pod(_render(_xr(_spec30, {"agents.ogenki.io/remaining-seconds" = left}, {}, {}), {}, _DXR)).activeDeadlineSeconds
+    }
+    assert _deadline("999999") == 1800, "never past the run's own budget"
+    assert _deadline("30") == 1800, "under a minute is ignored"
+    assert _deadline("12x") == 1800, "a malformed value is ignored"
+    _plain = _pod(_render(_xr({
+        budget = {maxMinutes = 30}
+    }, {"agents.ogenki.io/remaining-seconds" = "600"}, {}, {}), {}, _DXR))
+    assert _plain.activeDeadlineSeconds == 1800, "an unsuspendable run ignores it"
+}
+
+test_revoke_wins_over_suspend = lambda {
+    _res = _suspendRender(_SUSPEND | {"agents.ogenki.io/revoked" = "manual"}, {phase = "Suspended"}, _parkedSandbox("Suspended", False, []))
+    assert _status(_res).phase == "Revoked"
+    assert "Sandbox" not in [r.kind for r in _res]
+}
+
+test_a_suspended_run_that_succeeded_is_done = lambda {
+    # The harness exited 0 just as the suspend arrived: the run is over.
+    _done = [{type = "Ready", status = "False"}, {type = "Finished", status = "True", reason = "PodSucceeded", lastTransitionTime = "2026-09-25T10:30:00Z"}]
+    _res = _suspendRender(_SUSPEND, {phase = "Running"}, _parkedSandbox("Running", True, _done))
+    assert _status(_res).phase == "Succeeded"
+}
