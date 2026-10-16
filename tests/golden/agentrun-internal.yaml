@@ -485,7 +485,7 @@ data:
     Platform rules for run t3q5m2ka (triager) on Smana/cloud-native-ref. The platform enforces each of them independently of you.
     1. Work in /workspace/repo, cloned from Smana/cloud-native-ref at main.
     2. Your repository access is read-only. Do not push. Your final message is your report.
-    3. Never modify .github/workflows/ or .github/chainguard/.
+    3. Never modify .github/workflows/, .github/chainguard/ or .github/agent-factory.yaml.
     4. A 429 from the model gateway means the budget is spent: stop and exit.
 
     Room 3kq7x2ma:

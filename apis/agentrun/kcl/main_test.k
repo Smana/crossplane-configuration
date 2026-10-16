@@ -379,6 +379,9 @@ test_rules_depend_on_role = lambda {
     assert "4. A 429 from the model gateway" in _rev
     assert "Every commit carries the trailer" not in _rev
     assert "6. A 429 from the model gateway" in _impl, "the write branch keeps all 6 rules"
+    # The ownership fence (agent-platform #125) is as protected as the workflows.
+    assert "3. Never modify .github/workflows/, .github/chainguard/ or .github/agent-factory.yaml." in _rev
+    assert "5. Never modify .github/workflows/, .github/chainguard/ or .github/agent-factory.yaml." in _impl
 }
 
 # ---- Phase table, rows 1-6 (design §2) ----

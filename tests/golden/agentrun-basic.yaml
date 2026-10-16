@@ -379,7 +379,7 @@ data:
     2. Push only to agent/7f3cq2xz. Never push to any other branch, and never merge.
     3. Open at most one pull request, from agent/7f3cq2xz into main. If it already exists, update it.
     4. Every commit carries the trailer "Agent-Run: 7f3cq2xz". The commit hook adds it.
-    5. Never modify .github/workflows/ or .github/chainguard/.
+    5. Never modify .github/workflows/, .github/chainguard/ or .github/agent-factory.yaml.
     6. A 429 from the model gateway means the budget is spent: stop and exit.
   run.json: '{"runId": "7f3cq2xz", "role": "implementer", "repository": "Smana/cloud-native-ref",
     "baseRef": "main", "branch": "agent/7f3cq2xz", "dataClass": "public", "model":

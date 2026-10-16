@@ -307,8 +307,8 @@ spec:
           # branches are numbered independently and each is a complete, gap-free list.
           _rulesFor = lambda role: str, runId: str, repository: str, branch: str, baseRef: str, roomRef: str -> str {
               _intro = "Platform rules for run {} ({}) on {}. The platform enforces each of them independently of you.\n1. Work in /workspace/repo, cloned from {} at {}.\n".format(runId, role, repository, repository, baseRef)
-              _write = "2. Push only to {}. Never push to any other branch, and never merge.\n3. Open at most one pull request, from {} into {}. If it already exists, update it.\n4. Every commit carries the trailer \"Agent-Run: {}\". The commit hook adds it.\n5. Never modify .github/workflows/ or .github/chainguard/.\n6. A 429 from the model gateway means the budget is spent: stop and exit.\n".format(branch, branch, baseRef, runId)
-              _read = "2. Your repository access is read-only. Do not push. Your final message is your report.\n3. Never modify .github/workflows/ or .github/chainguard/.\n4. A 429 from the model gateway means the budget is spent: stop and exit.\n"
+              _write = "2. Push only to {}. Never push to any other branch, and never merge.\n3. Open at most one pull request, from {} into {}. If it already exists, update it.\n4. Every commit carries the trailer \"Agent-Run: {}\". The commit hook adds it.\n5. Never modify .github/workflows/, .github/chainguard/ or .github/agent-factory.yaml.\n6. A 429 from the model gateway means the budget is spent: stop and exit.\n".format(branch, branch, baseRef, runId)
+              _read = "2. Your repository access is read-only. Do not push. Your final message is your report.\n3. Never modify .github/workflows/, .github/chainguard/ or .github/agent-factory.yaml.\n4. A 429 from the model gateway means the budget is spent: stop and exit.\n"
               _intro + (_write if role == "implementer" else _read) + _roomRules(role, roomRef)
           }
 
