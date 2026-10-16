@@ -1149,6 +1149,17 @@ test_suspendable_workspace_is_a_pvc = lambda {
     assert _env["AGENT_SUSPENDABLE"] == "true"
 }
 
+# S4 (agent-platform): the bridge alone continues a resumed run, so it must know the run is
+# suspendable; without the variable it leaves a reloaded, paused conversation paused.
+test_the_bridge_knows_a_suspendable_run = lambda {
+    _bridgeEnv = lambda res: [any] -> {str:str} {
+        {e.name: e.value for e in [c for c in _kind(res, "Sandbox")[0].spec.podTemplate.spec.initContainers if c.name == "room-bridge"][0].env}
+    }
+    assert _bridgeEnv(_suspendRender({}, {}, {}))["AGENT_SUSPENDABLE"] == "true"
+    _plain = _render(_xr({roomRef = "k3j5m7n2"}, {}, {}, {}), {}, _DXR)
+    assert "AGENT_SUSPENDABLE" not in _bridgeEnv(_plain), "a run that is not suspendable renders today's bridge"
+}
+
 test_suspend_asked_while_running = lambda {
     _res = _suspendRender(_SUSPEND, {phase = "Running"}, _parkedSandbox("Running", True, _READY))
     _sbx = _kind(_res, "Sandbox")[0]

@@ -349,6 +349,9 @@ _renderRun = lambda _oxr: any, _ocds: any, _dxr: any, _pods: any -> [any] {
     ] if _internal else []
     _roomRef = _spec.roomRef
 
+    # P6: a resumed pod's conversation reloads paused, and only the bridge continues it.
+    _bridgeSuspend = [{name = "AGENT_SUSPENDABLE", value = "true"}] if _suspendable else []
+
     # The only container that mounts the room-broker token. TLS to the broker on
     # both clouds (GP-18): the CA is the Secret room-broker-ca in this namespace.
     _bridge = [{
@@ -369,7 +372,7 @@ _renderRun = lambda _oxr: any, _ocds: any, _dxr: any, _pods: any -> [any] {
             {name = "EGRESS_PROFILES", value = ",".join(_profiles)}
             {name = "FLUSH_GRACE", value = _BRIDGE_FLUSH_GRACE}
             {name = "MCP_READ_ONLY_TOOLS", value = _MCP_READ_ONLY_TOOLS}
-        ]
+        ] + _bridgeSuspend
         ports = [{name = "bridge-health", containerPort = _BRIDGE_HEALTH_PORT, protocol = "TCP"}]
         # Process-only until the harness first answers (ruling P6): this startup
         # probe gates the harness container, so it must never wait for it.
