@@ -197,15 +197,18 @@ spec:
           # the sidecars still drain, withholding the SA, so the bridge's drain flush can no longer
           # authenticate: accepted, since agent-run's own final read completes the room log before it exits.
           # A crash sets only the reason (_reasonOf), never the phase early, so its transcript still flushes.
+          # `parking` (warm-sandboxes design §6) is a suspend asked of, or still held on, a running run: its pod's
+          # end is the suspend's own, so it outranks every failure but not a success or a revocation. A resumed
+          # run stays Suspended until its new pod is Ready.
           # Pending means never started: Running latches too, below every end. agent-sandbox
           # v1.0.3 reports Ready=False from the harness's exit until the pod is Succeeded
           # (the sidecars drain for up to 45 s), and a run read Pending then looks never
           # admitted to the factory, which deletes it.
-          _phaseOf = lambda annotations: any, previous: str, sandbox: any, lost: bool, disrupted: bool, exited: any -> str {
+          _phaseOf = lambda annotations: any, previous: str, sandbox: any, lost: bool, disrupted: bool, exited: any, parking: bool -> str {
               _revoked = _get(annotations, "agents.ogenki.io/revoked") or ""
               _finished = _condition(sandbox, "Finished")
               _ready = _condition(sandbox, "Ready")
-              previous if previous in _TERMINAL_PHASES else "BudgetExhausted" if _revoked in _BUDGET_REASONS else "Revoked" if _revoked == "manual" else "Succeeded" if exited == 0 or _finished?.status == "True" and _finished?.reason == "PodSucceeded" else "Failed" if disrupted else "Failed" if _finished?.status == "True" and _finished?.reason == "PodFailed" else "Failed" if lost else "Running" if _ready?.status == "True" or previous == "Running" else "Pending"
+              previous if previous in _TERMINAL_PHASES else "BudgetExhausted" if _revoked in _BUDGET_REASONS else "Revoked" if _revoked == "manual" else "Succeeded" if exited == 0 or _finished?.status == "True" and _finished?.reason == "PodSucceeded" else "Suspended" if parking and previous in ["Running", "Suspended"] else "Failed" if disrupted else "Failed" if _finished?.status == "True" and _finished?.reason == "PodFailed" else "Failed" if lost else "Running" if _ready?.status == "True" or previous == "Running" else "Suspended" if previous == "Suspended" else "Pending"
           }
 
           # The reason latches with the phase (F2): once `previousPhase` is terminal,
@@ -329,11 +332,22 @@ spec:
               _size = _SIZES[_spec.size or "small"]
               _profile = _HARNESS_PROFILES[_spec.harness or "openhands"]
               _maxMinutes = _spec.budget?.maxMinutes or 120
+              _ann = _oxr.metadata?.annotations or {}
+
+              # Warm-sandboxes design §6: only a suspendable run, fixed at creation, reads the factory's
+              # suspend annotations. A resumed pod gets what is left of the run's running time, which only
+              # the factory can count (KCL has no clock), never more than the run's own budget.
+              _suspendable = _spec.suspendable or False
+              _mode = _get(_ann, "agents.ogenki.io/operating-mode") if _suspendable else None
+              _suspendAsked = _mode == "Suspended"
+              _left = _get(_ann, "agents.ogenki.io/remaining-seconds") if _suspendable else None
+              _leftSeconds = int(_left) if _left and regex.match(_left, "^[0-9]{1,6}$") else 0
+              _runSeconds = min([_maxMinutes * 60, _leftSeconds]) if _leftSeconds >= 60 else _maxMinutes * 60
 
               # R2 (SP1 spike Q2): under gVisor, kubelet's host-side token rotation raises no inotify,
               # so the proxy's watched_directory never reloads. Each token outlives the run instead,
               # which widens T8 to the deadline. 600 s is the apiserver's floor.
-              _tokenTTL = max([600, _maxMinutes * 60])
+              _tokenTTL = max([600, _runSeconds])
 
               # T4/T5 (identity design §2, §7): an internal run has no direct GitHub or profile
               # egress, and no sts port either, so it is never minted a GitHub token. It reads
@@ -410,7 +424,6 @@ spec:
                   {name = "room-broker-ca", secret = {secretName = "room-broker-ca", defaultMode = 288, items = [{key = "ca.crt", path = "ca.crt"}]}}
               ] if _roomRef else []
               _bridgeIngress = [{fromEntities = ["host"], toPorts = [{ports = [{port = str(_BRIDGE_HEALTH_PORT), protocol = "TCP"}]}]}] if _roomRef else []
-              _ann = _oxr.metadata?.annotations or {}
               _taskLabel = _get(_oxr.metadata?.labels or {}, "agents.ogenki.io/task")
               _sandbox = _observed(_ocds, _name + "-sandbox")
               _previous = _oxr.status or {}
@@ -441,7 +454,14 @@ spec:
               _exitCode = _exit?.exitCode
               # 143 and 137 are the shutdown's own SIGTERM and SIGKILL: the disruption ended those.
               _crashed = _exitCode != None and _exitCode not in [0, 137, 143]
-              _phase = _phaseOf(_ann, _prevPhase, _sandbox, _lost, _disrupted, _exitCode)
+
+              # Design §6, the hold: a decision that lands while the suspended pod still drains must not
+              # render Running, or agent-sandbox keeps that pod and its PodFailed ends the run. The Sandbox
+              # last applied Suspended stays so until it reports its pod gone.
+              _hold = _prevPhase == "Suspended" and _sandbox?.spec?.operatingMode == "Suspended" and _condition(_sandbox, "Suspended")?.status != "True"
+              _phase = _phaseOf(_ann, _prevPhase, _sandbox, _lost, _disrupted, _exitCode, _suspendAsked or _hold)
+              # Suspended while waiting on a human, not finished: the SA, the CNP and the room stay the run's.
+              _parked = _phase == "Suspended" and (_suspendAsked or _hold)
               _revoked = _get(_ann, "agents.ogenki.io/revoked")
               _validRevoke = _revoked in _REVOKE_REASONS
 
@@ -506,7 +526,7 @@ spec:
               # A terminal Sandbox is ready by definition: once Suspended it reports
               # Ready=False (SandboxSuspended) and loses Finished with its pod, and the
               # XR must not flap.
-              _sandboxReady = _phase in _TERMINAL_PHASES or _condition(_sandbox, "Ready")?.status == "True"
+              _sandboxReady = _phase in _TERMINAL_PHASES or _phase == "Suspended" or _condition(_sandbox, "Ready")?.status == "True"
               _serviceAccount = [{
                   apiVersion = "v1"
                   kind = "ServiceAccount"
@@ -587,7 +607,14 @@ spec:
                   spec = {
                       # Nothing ever dials into a sandbox (C4).
                       service = False
-                      operatingMode = "Suspended" if _suspended else "Running"
+                      operatingMode = "Suspended" if _suspended or _parked else "Running"
+                      # The PVC outlives the pod (agent-sandbox names it workspace-<sandbox>) and dies with
+                      # the Sandbox. The class is the host's, one per cloud (ai-native-ref agent-workspace).
+                      if _suspendable:
+                          volumeClaimTemplates = [{
+                              metadata.name = "workspace"
+                              spec = {accessModes = ["ReadWriteOnce"], storageClassName = "agent-workspace", resources.requests.storage = _size.scratch}
+                          }]
                       podTemplate = {
                           metadata = {
                               labels = _podLabels
@@ -599,11 +626,13 @@ spec:
                               # From the first pod's binding: before it nothing has run, and
                               # after it any new pod is a replacement. Waiting for Ready would
                               # leave a window, one XR reconcile long, in which the task runs.
-                              if _started or _phase == "Running" or _scheduled?.status == "True":
+                              # A suspend restarts that memory (design §6): agent-sandbox drops PodScheduled
+                              # with the pod, and the resumed pod is a first pod again until it is bound.
+                              if not _parked and (_started or _phase == "Running" or _scheduled?.status == "True"):
                                   schedulingGates = [{name = _POD_LOST_GATE}]
                               runtimeClassName = "gvisor"
                               restartPolicy = "Never"
-                              activeDeadlineSeconds = _maxMinutes * 60
+                              activeDeadlineSeconds = _runSeconds
                               enableServiceLinks = False
                               shareProcessNamespace = False
                               terminationGracePeriodSeconds = _ROOM_GRACE_SECONDS if _roomRef else 30
@@ -669,7 +698,7 @@ spec:
                                       # honours LMNR_TRACE_CONTENT and injects traceparent; lmnr's LiteLLM one does neither.
                                       {name = "LMNR_INSTRUMENTS", value = "openai"}
                                       {name = "LMNR_TRACE_CONTENT", value = "false"}
-                                  ] + ([{name = "TRACEPARENT", value = _tp}] if _tp else []) + _footerEnv + _bridgeEnv + _gitEnv
+                                  ] + ([{name = "TRACEPARENT", value = _tp}] if _tp else []) + _footerEnv + _bridgeEnv + _gitEnv + ([{name = "AGENT_SUSPENDABLE", value = "true"}] if _suspendable else [])
                                   # No containerPort: agent-server listens on loopback only.
                                   # timeoutSeconds covers python3's start-up under gVisor
                                   # plus urlopen's own 2 s; kubelet's 1 s default would
@@ -700,7 +729,7 @@ spec:
                                   {name = "proxy-config", configMap = {name = "agent-identity-proxy"}}
                                   {name = "proxy-tmp", emptyDir = {medium = "Memory", sizeLimit = "16Mi"}}
                                   {name = "task", configMap = {name = _name + "-task"}}
-                                  {name = "workspace", emptyDir = {sizeLimit = _size.scratch}}
+                              ] + ([] if _suspendable else [{name = "workspace", emptyDir = {sizeLimit = _size.scratch}}]) + [
                                   {name = "home", emptyDir = {sizeLimit = "2Gi"}}
                                   {name = "tmp", emptyDir = {sizeLimit = "2Gi"}}
                                   # The GitHub token cache lives in memory only (T3).

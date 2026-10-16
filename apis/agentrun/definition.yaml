@@ -76,6 +76,8 @@ spec:
                   message: "roomRef is immutable and cannot be added or removed after creation"
                 - rule: "has(self.queueName) == has(oldSelf.queueName) && (!has(self.queueName) || self.queueName == oldSelf.queueName)"
                   message: "queueName is immutable and cannot be added or removed after creation"
+                - rule: "has(self.suspendable) == has(oldSelf.suspendable) && (!has(self.suspendable) || self.suspendable == oldSelf.suspendable)"
+                  message: "suspendable is immutable and cannot be added or removed after creation"
               properties:
                 role:
                   description: The run's one role (C2). A policy input, not an identity.
@@ -212,12 +214,20 @@ spec:
                   # label value (kueue.x-k8s.io/queue-name), so it must be a
                   # valid one.
                   pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                suspendable:
+                  description: >-
+                    The run may be suspended while it waits on a human (warm-sandboxes design §6):
+                    /workspace becomes a PVC of the size's scratch, and the annotations
+                    agents.ogenki.io/operating-mode and agents.ogenki.io/remaining-seconds suspend
+                    and resume it. Unset, both annotations are ignored.
+                  type: boolean
             status:
               type: object
               properties:
                 phase:
                   type: string
-                  enum: [Pending, Running, Succeeded, Failed, BudgetExhausted, Revoked]
+                  description: Suspended is not an end. The run waits on a human, without a pod, and resumes on the same ServiceAccount and PVC.
+                  enum: [Pending, Running, Suspended, Succeeded, Failed, BudgetExhausted, Revoked]
                 runId:
                   type: string
                 branch:
