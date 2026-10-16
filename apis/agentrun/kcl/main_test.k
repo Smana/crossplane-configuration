@@ -229,6 +229,19 @@ test_internal_run_has_no_direct_github_egress = lambda {
     }, "kube-dns answers no GitHub name"
 }
 
+# P6 (agentgateway plan): an internal run's git reaches github.com through the gateway's
+# read-only route, by url.insteadOf in git's environment config. A public run keeps its own.
+test_internal_run_fetches_through_the_gateway = lambda {
+    _env = {e.name: e.value for e in _pod(_run({role = "triager", dataClass = "internal"})).containers[0].env}
+    assert _env.GIT_CONFIG_COUNT == "1"
+    assert _env.GIT_CONFIG_KEY_0 == "url.http://127.0.0.1:4002/github/.insteadOf"
+    assert _env.GIT_CONFIG_VALUE_0 == "https://github.com/"
+    _public = [e.name for e in _pod(_run({})).containers[0].env]
+    assert not any n in _public {
+        n.startswith("GIT_CONFIG")
+    }, "a public run has direct GitHub egress and no rewrite"
+}
+
 # A room is in-cluster: an internal run keeps the broker, by name and port, and nothing public.
 test_internal_room_run_keeps_only_the_broker = lambda {
     _spec = _kind(_run({role = "triager", dataClass = "internal", roomRef = "3kq7x2ma"}), "CiliumNetworkPolicy")[0].spec

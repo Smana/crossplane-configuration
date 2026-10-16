@@ -342,6 +342,16 @@ spec:
               assert not (_internal and _spec.egress?.profiles), "an internal run takes no egress profiles (T5)"
               _profiles = ([] if _internal else ["github"]) + (_spec.egress?.profiles or [])
               _fqdns = [f for p in _profiles for f in _EGRESS_PROFILES[p]]
+
+              # P6 (agentgateway plan): the harness clones https://github.com/<repo>.git; git's
+              # environment config sends an internal run's fetch to identity-proxy, then the
+              # internal listener's read-only route (ai-native-ref agent-gateway/github.yaml).
+              # A push takes the same rewrite and finds no route there.
+              _gitEnv = [
+                  {name = "GIT_CONFIG_COUNT", value = "1"}
+                  {name = "GIT_CONFIG_KEY_0", value = "url.http://127.0.0.1:{}/github/.insteadOf".format(_PROXY_PORT[_class])}
+                  {name = "GIT_CONFIG_VALUE_0", value = "https://github.com/"}
+              ] if _internal else []
               _roomRef = _spec.roomRef
 
               # The only container that mounts the room-broker token. TLS to the broker on
@@ -658,7 +668,7 @@ spec:
                                       # honours LMNR_TRACE_CONTENT and injects traceparent; lmnr's LiteLLM one does neither.
                                       {name = "LMNR_INSTRUMENTS", value = "openai"}
                                       {name = "LMNR_TRACE_CONTENT", value = "false"}
-                                  ] + ([{name = "TRACEPARENT", value = _tp}] if _tp else []) + _footerEnv + _bridgeEnv
+                                  ] + ([{name = "TRACEPARENT", value = _tp}] if _tp else []) + _footerEnv + _bridgeEnv + _gitEnv
                                   # No containerPort: agent-server listens on loopback only.
                                   # timeoutSeconds covers python3's start-up under gVisor
                                   # plus urlopen's own 2 s; kubelet's 1 s default would

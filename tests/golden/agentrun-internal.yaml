@@ -192,6 +192,12 @@ spec:
           value: 3kq7x2ma
         - name: BRIDGE_URL
           value: http://127.0.0.1:8085
+        - name: GIT_CONFIG_COUNT
+          value: "1"
+        - name: GIT_CONFIG_KEY_0
+          value: url.http://127.0.0.1:4002/github/.insteadOf
+        - name: GIT_CONFIG_VALUE_0
+          value: https://github.com/
         image: ghcr.io/smana/agent-harness:v0.13.0@sha256:a6bbd8e345a7fc0a216863c04e9e5e8a7f4ca7cb21b2fb89ca26e49ba58f34ec
         livenessProbe:
           exec:

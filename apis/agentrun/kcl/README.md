@@ -58,7 +58,9 @@ spec:
 
 - **`internal` runs** have no direct GitHub egress, no `sts` port (so no GitHub token) and no
   profiles: the XRD and the composition both refuse `egress.profiles` on them (identity design
-  T4/T5). They read GitHub through the gateway's read-only route.
+  T4/T5). They read GitHub through the gateway's read-only route: their git environment carries
+  `url.http://127.0.0.1:4002/github/.insteadOf https://github.com/`, so a fetch goes identity-proxy →
+  the `internal` listener → github.com, and a push finds no route there.
 - **Immutable after creation**: everything in `spec` except `budget.maxTokens`, including adding or
   removing an optional field (`branch`, `roomRef`, `queueName`). To change a run, start another.
 - `branch` defaults to `agent/<runId>`, `baseRef` to `main`, `model` to `agent-default`, `size` to
