@@ -49,7 +49,6 @@ spec:
         protocol: TCP
       rules:
         dns:
-        - matchName: agent-router.envoy-gateway-system.svc.cluster.local
         - matchName: agent-router.agent-gateway.svc.cluster.local
         - matchName: agent-traces-collector.observability.svc.cluster.local
         - matchName: github.com
@@ -58,10 +57,6 @@ spec:
         - matchName: objects.githubusercontent.com
         - matchName: raw.githubusercontent.com
   - toEndpoints:
-    - matchLabels:
-        gateway.envoyproxy.io/owning-gateway-name: agent-router
-        gateway.envoyproxy.io/owning-gateway-namespace: agent-system
-        io.kubernetes.pod.namespace: envoy-gateway-system
     - matchLabels:
         gateway.networking.k8s.io/gateway-name: agent-router
         io.kubernetes.pod.namespace: agent-gateway

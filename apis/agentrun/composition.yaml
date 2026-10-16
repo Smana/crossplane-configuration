@@ -81,11 +81,9 @@ spec:
 
           # Fully qualified, so ndots:1 sends them to kube-dns as-is and the L7 DNS rule
           # can answer exactly these names (Q4).
-          # Both agent routers during the cutover (ADR-0053): Envoy's until CC-AGW2,
-          # agentgateway's after. Which one a run calls is the identity-proxy's config.
-          _ROUTER_FQDNS = ["agent-router.envoy-gateway-system.svc.cluster.local", "agent-router.agent-gateway.svc.cluster.local"]
+          # agentgateway's agent-router only: Envoy's was removed in ADR-0053 phase H.
+          _ROUTER_FQDNS = ["agent-router.agent-gateway.svc.cluster.local"]
           _ROUTER_ENDPOINTS = [
-              {"io.kubernetes.pod.namespace" = "envoy-gateway-system", "gateway.envoyproxy.io/owning-gateway-name" = "agent-router", "gateway.envoyproxy.io/owning-gateway-namespace" = "agent-system"}
               {"io.kubernetes.pod.namespace" = "agent-gateway", "gateway.networking.k8s.io/gateway-name" = "agent-router"}
           ]
           _BROKER_FQDN = "room-broker.agent-system.svc.cluster.local"
