@@ -210,7 +210,7 @@ test_data_class_picks_port_and_audience = lambda {
     _env = {e.name: e.value for e in _pod(_res).containers[0].env}
     assert _env.LLM_BASE_URL == "http://127.0.0.1:4002/v1"
     assert _env.MCP_URL == "http://127.0.0.1:4002/mcp"
-    _router = [e for e in _kind(_res, "CiliumNetworkPolicy")[0].spec.egress if e.toEndpoints and e.toEndpoints[0].matchLabels["io.kubernetes.pod.namespace"] == "envoy-gateway-system"][0]
+    _router = [e for e in _kind(_res, "CiliumNetworkPolicy")[0].spec.egress if e.toEndpoints and e.toEndpoints[0].matchLabels["io.kubernetes.pod.namespace"] == "agent-gateway"][0]
     assert _router.toPorts[0].ports == [{port = "8081", protocol = "TCP"}], "internal runs reach only the internal listener: no sts, so no GitHub token"
     assert {v.name: v for v in _pod(_res).volumes}["gateway-token"].projected.sources[0].serviceAccountToken.audience == "agent-router.tester.internal"
 }
@@ -233,7 +233,7 @@ test_internal_run_has_no_direct_github_egress = lambda {
 test_internal_room_run_keeps_only_the_broker = lambda {
     _spec = _kind(_run({role = "triager", dataClass = "internal", roomRef = "3kq7x2ma"}), "CiliumNetworkPolicy")[0].spec
     _dns = [n.matchName for n in _spec.egress[0].toPorts[0].rules.dns]
-    assert _dns == ["agent-router.envoy-gateway-system.svc.cluster.local", "agent-router.agent-gateway.svc.cluster.local", "agent-traces-collector.observability.svc.cluster.local", "room-broker.agent-system.svc.cluster.local"]
+    assert _dns == ["agent-router.agent-gateway.svc.cluster.local", "agent-traces-collector.observability.svc.cluster.local", "room-broker.agent-system.svc.cluster.local"]
     _egressRules = _spec.egress
     assert not any e in _egressRules {
         "toFQDNs" in e
@@ -242,17 +242,17 @@ test_internal_room_run_keeps_only_the_broker = lambda {
     assert len(_broker) == 1 and _broker[0].toPorts == [{ports = [{port = "8443", protocol = "TCP"}]}]
 }
 
-# ADR-0053 cutover: a run may reach Envoy's agent-router or agentgateway's, by
-# name and by pod, on the same class ports. Each selector pins its namespace (F1).
-test_run_reaches_both_agent_routers = lambda {
-    _routers = [{"io.kubernetes.pod.namespace" = "envoy-gateway-system", "gateway.envoyproxy.io/owning-gateway-name" = "agent-router", "gateway.envoyproxy.io/owning-gateway-namespace" = "agent-system"}, {"io.kubernetes.pod.namespace" = "agent-gateway", "gateway.networking.k8s.io/gateway-name" = "agent-router"}]
+# ADR-0053 phase H: Envoy's agent-router is gone. A run reaches agentgateway's
+# alone, by name and by pod, on the class's ports. The selector pins its namespace (F1).
+test_run_reaches_only_the_agentgateway_router = lambda {
+    _agw = {"io.kubernetes.pod.namespace" = "agent-gateway", "gateway.networking.k8s.io/gateway-name" = "agent-router"}
     _cases = [[{}, ["8080", "8082"]], [{role = "triager", dataClass = "internal"}, ["8081"]]]
     assert all c in _cases {
-        _routerRulesFor(c[0]) == [{toEndpoints = [{matchLabels = l} for l in _routers], toPorts = [{ports = [{port = p, protocol = "TCP"} for p in c[1]]}]}]
-    }, "one rule, both routers, the class's ports"
+        _routerRulesFor(c[0]) == [{toEndpoints = [{matchLabels = _agw}], toPorts = [{ports = [{port = p, protocol = "TCP"} for p in c[1]]}]}]
+    }, "one rule, agentgateway only, the class's ports"
     _dns = [n.matchName for n in _kind(_run({}), "CiliumNetworkPolicy")[0].spec.egress[0].toPorts[0].rules.dns]
-    assert "agent-router.envoy-gateway-system.svc.cluster.local" in _dns
     assert "agent-router.agent-gateway.svc.cluster.local" in _dns
+    assert "agent-router.envoy-gateway-system.svc.cluster.local" not in _dns
 }
 
 _routerRulesFor = lambda spec: any -> any {
@@ -266,7 +266,7 @@ test_public_run_keeps_github_egress = lambda {
 
 test_public_run_reaches_only_the_public_listener = lambda {
     _egress = _kind(_run({}), "CiliumNetworkPolicy")[0].spec.egress
-    _ports = [p.port for e in _egress if e.toEndpoints and e.toEndpoints[0].matchLabels["io.kubernetes.pod.namespace"] == "envoy-gateway-system" for t in e.toPorts for p in t.ports]
+    _ports = [p.port for e in _egress if e.toEndpoints and e.toEndpoints[0].matchLabels["io.kubernetes.pod.namespace"] == "agent-gateway" for t in e.toPorts for p in t.ports]
     assert _ports == ["8080", "8082"]
 }
 
@@ -319,7 +319,7 @@ test_cnp_is_default_deny_with_named_egress = lambda {
     _fqdn = [e for e in _spec.egress if e.toFQDNs][0]
     assert [f.matchName for f in _fqdn.toFQDNs] == ["github.com", "api.github.com", "codeload.github.com", "objects.githubusercontent.com", "raw.githubusercontent.com", "pypi.org", "files.pythonhosted.org"]
     _dns = [n.matchName for n in _spec.egress[0].toPorts[0].rules.dns]
-    assert "agent-router.envoy-gateway-system.svc.cluster.local" in _dns and "pypi.org" in _dns
+    assert "agent-router.agent-gateway.svc.cluster.local" in _dns and "pypi.org" in _dns
     _dnsRules = _spec.egress[0].toPorts[0].rules.dns
     _egressRules = _spec.egress
     assert not any n in _dnsRules {
@@ -331,8 +331,8 @@ test_cnp_is_default_deny_with_named_egress = lambda {
 
     # F1: the namespace is pinned too, so a tenant Gateway named "agent-router"
     # in some other namespace can never match this selector.
-    _router = [e for e in _egressRules if e.toEndpoints and e.toEndpoints[0].matchLabels["gateway.envoyproxy.io/owning-gateway-name"] == "agent-router"][0]
-    assert _router.toEndpoints[0].matchLabels["gateway.envoyproxy.io/owning-gateway-namespace"] == "agent-system"
+    _router = [e for e in _egressRules if e.toEndpoints and e.toEndpoints[0].matchLabels["gateway.networking.k8s.io/gateway-name"] == "agent-router"][0]
+    assert _router.toEndpoints[0].matchLabels["io.kubernetes.pod.namespace"] == "agent-gateway"
 }
 
 test_room_ref_adds_broker_egress = lambda {
