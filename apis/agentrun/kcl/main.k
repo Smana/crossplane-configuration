@@ -35,7 +35,7 @@ _HARNESS_PROFILES = {
         # use Anthropic prompt caching; nothing new to set here. v0.15.1 (#134, #140): the image's
         # Python lock takes its pending security fixes.
         # The digest is the multi-arch index.
-        image = "ghcr.io/smana/agent-harness:v0.15.1@sha256:4d20e4437ce7804cf2694ff0ab67a7cbd483042608501f34c15befb9fd68b23e"
+        image = "ghcr.io/smana/agent-harness:v0.15.2@sha256:c49cece37477cc70a1f88283438d588abd7610bda00830b73fbfc53fc7f99893"
         port = 8000
         # agent-run, the image's entrypoint, starts agent-server on
         # 127.0.0.1:8000 itself. Its API is unauthenticated, so it stays off the
@@ -74,7 +74,7 @@ _BROKER_FQDN = "room-broker.agent-system.svc.cluster.local"
 # identity-proxy, rendered only with roomRef, pinned by digest like the harness.
 # agent-platform v0.12.0: reads agentgateway's `<server>_<tool>` names (#117), and takes its
 # read-only MCP set from MCP_READ_ONLY_TOOLS (#106). v0.13.0 to v0.15.1 ship it unchanged.
-_BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.15.1@sha256:8e9a7d0e7f22dcb068d9c38f1997d8a8b8329781e9e03d565e1f11876d458269"
+_BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.15.2@sha256:c0ba9555bc1848d9783f722e38d74b1b06bb3358dd2759f756c63e1379a67eff"
 
 # The MCP tools the bridge lets through as plain; every other one is mcp.write and waits for
 # approval. Unset, that includes the room tools (#106 fails closed). agent-platform
