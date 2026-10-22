@@ -248,6 +248,12 @@ spec:
                   type: string
                 pullRequest:
                   type: string
+                harnessImage:
+                  description: >-
+                    The image the run's harness container ran, <repository>@sha256:<digest>, as the
+                    kubelet reports it (imageID). Set once the pod reports it, then never changed (R10).
+                  type: string
+                  maxLength: 320
                 usage:
                   type: object
                   properties:
