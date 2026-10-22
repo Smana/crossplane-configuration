@@ -78,6 +78,8 @@ spec:
                   message: "queueName is immutable and cannot be added or removed after creation"
                 - rule: "has(self.suspendable) == has(oldSelf.suspendable) && (!has(self.suspendable) || self.suspendable == oldSelf.suspendable)"
                   message: "suspendable is immutable and cannot be added or removed after creation"
+                - rule: "has(self.loop) == has(oldSelf.loop) && (!has(self.loop) || self.loop == oldSelf.loop)"
+                  message: "loop is immutable and cannot be added or removed after creation"
               properties:
                 role:
                   description: The run's one role (C2). A policy input, not an identity.
@@ -147,6 +149,16 @@ spec:
                   default: agent-default
                   x-kubernetes-validations:
                     - {rule: "self == oldSelf", message: "model is immutable"}
+                loop:
+                  description: >-
+                    The run's loop policy (ai-native-ref loops design L2). judgeModel is the alias the
+                    completion judge calls through the identity proxy's /judge/v1 path, which the proxy pins to
+                    it (capability profiles P4); unset, the gateway refuses that path.
+                  type: object
+                  properties:
+                    judgeModel:
+                      type: string
+                      enum: [agent-default, tier-light, tier-standard, tier-frontier]
                 dataClass:
                   description: |
                     public or internal. Picks the gateway audience, proxy port and listener,
