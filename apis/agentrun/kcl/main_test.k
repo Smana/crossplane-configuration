@@ -1259,3 +1259,35 @@ test_a_suspended_run_that_succeeded_is_done = lambda {
     _res = _suspendRender(_SUSPEND, {phase = "Running"}, _parkedSandbox("Running", True, _done))
     assert _status(_res).phase == "Succeeded"
 }
+
+# ---- R10: the image the run ran on ----
+_DIGEST = "ghcr.io/smana/agent-harness@sha256:c49cece37477cc70a1f88283438d588abd7610bda00830b73fbfc53fc7f99893"
+_runningPod = lambda imageID: str -> any {
+    {
+        metadata = {name = _NAME, namespace = "agents", ownerReferences = _OWNED}
+        status = {phase = "Running", containerStatuses = [
+            {name = "room-bridge", imageID = "ghcr.io/smana/room-bridge@sha256:" + "0" * 64, state.running = {}}
+            {name = "harness", imageID = imageID, state.running = {}}
+        ]}
+    }
+}
+
+test_the_run_records_the_harness_image_its_pod_ran = lambda {
+    _st = _endWith({phase = "Running"}, _appliedSandbox(False, [{type = "Ready", status = "True"}]), [_runningPod(_DIGEST)])
+    assert _st.harnessImage == _DIGEST, "the harness container's, not a sidecar's"
+}
+
+test_the_harness_image_latches = lambda {
+    _other = "ghcr.io/smana/agent-harness@sha256:" + "a" * 64
+    _st = _endWith({phase = "Running", harnessImage = _DIGEST}, _appliedSandbox(False, [{type = "Ready", status = "True"}]), [_runningPod(_other)])
+    assert _st.harnessImage == _DIGEST, "a resumed pod on another image keeps the first"
+    _gone = _endWith({phase = "Succeeded", harnessImage = _DIGEST}, _suspendedSandbox("Succeeded"), [])
+    assert _gone.harnessImage == _DIGEST, "it outlives the pod"
+}
+
+test_no_pod_or_a_malformed_image_id_projects_nothing = lambda {
+    assert "harnessImage" not in _endWith({phase = "Running"}, _appliedSandbox(False, [{type = "Ready", status = "True"}]), [])
+    assert "harnessImage" not in _endWith({phase = "Running"}, _appliedSandbox(False, [{type = "Ready", status = "True"}]), [_runningPod("ghcr.io/smana/agent-harness:v0.15.2")]), "a tag is not a digest"
+    assert "harnessImage" not in _endWith({phase = "Running"}, _appliedSandbox(False, [{type = "Ready", status = "True"}]), [_runningPod("")])
+    assert "harnessImage" not in _status(_run({})), "kcl test: no requiredResources at all"
+}

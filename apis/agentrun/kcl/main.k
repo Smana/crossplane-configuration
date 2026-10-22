@@ -222,6 +222,14 @@ _harnessEnd = lambda pod: any -> any {
     _harnessEnds[0] if _harnessEnds else None
 }
 
+# R10: the image the run's harness container ran, as the kubelet reports it (imageID): the digest it
+# pulled, not the reference asked for. Latched: the first value stays, so a resumed pod never rewrites
+# what the run started on. A value that is not <repository>@sha256:<digest> is never projected.
+_harnessImage = lambda pod: any, previous: any -> any {
+    _ids = [s.imageID for s in _get(pod?.status, "containerStatuses") or [] if s?.name == "harness" and s?.imageID]
+    previous if previous else _ids[0] if _ids and regex.match(_ids[0], "^[a-z0-9][a-z0-9./:_-]{0,190}@sha256:[0-9a-f]{64}$") else None
+}
+
 # Whether the Sandbox controls the pod. A claim re-created under the same name could otherwise read
 # the previous Sandbox's pod, draining or disrupted, which agent-sandbox refuses to adopt.
 _ownedBy = lambda pod: any, sandbox: any -> bool {
@@ -468,6 +476,7 @@ _renderRun = lambda _oxr: any, _ocds: any, _dxr: any, _pods: any -> [any] {
     _usage = _usageTokens(_ann, _previous?.usage?.tokens)
     _pr = _pullRequest(_ann, _repo, _previous?.pullRequest)
     _tp = _traceparent(_ann)
+    _image = _harnessImage(_runPod, _get(_previous, "harnessImage"))
 
     # The inputs of the harness's PR footer (H-S3), each only when the run has it:
     # provenance hints, never authorisation (ruling TB).
@@ -754,6 +763,8 @@ _renderRun = lambda _oxr: any, _ocds: any, _dxr: any, _pods: any -> [any] {
                 usage = {tokens = _usage}
             if _pr:
                 pullRequest = _pr
+            if _image:
+                harnessImage = _image
         }
     }]
 
