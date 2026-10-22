@@ -18,6 +18,8 @@ spec:
   branch: agent/6f2kq3ma
   principal: "system:factory"
   model: tier-standard
+  loop:
+    judgeModel: tier-light
   dataClass: public
   task:
     url: "https://github.com/Smana/cloud-native-ref/pull/2090"

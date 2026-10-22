@@ -338,6 +338,11 @@ spec:
               _baseRef = _spec.baseRef or "main"
               _branch = _spec.branch or "agent/" + _runId
               _model = _spec.model or "agent-default"
+
+              # P4 (ai-native-ref capability profiles design): the identity proxy sets x-ar-model from MODEL on
+              # every model path and from JUDGE_MODEL on /judge/v1, over any value the harness sends. `none`
+              # names no alias, so the gateway refuses the judge path until the claim names a judge.
+              _judgeModel = _spec.loop?.judgeModel or "none"
               _size = _SIZES[_spec.size or "small"]
               _profile = _HARNESS_PROFILES[_spec.harness or "openhands"]
               _maxMinutes = _spec.budget?.maxMinutes or 120
@@ -668,6 +673,12 @@ spec:
                                   # a control channel into the only container holding tokens.
                                   # --concurrency 1: this 200m/128Mi sidecar only needs one Envoy worker.
                                   args = ["-c", "/etc/envoy/envoy.yaml", "--log-level", "warn", "--disable-hot-restart", "--concurrency", "1"]
+                                  # Read by the proxy's bootstrap as %ENVIRONMENT(MODEL)% and %ENVIRONMENT(JUDGE_MODEL)%
+                                  # (ai-native-ref agent-runtime/identity-proxy-configmap.yaml).
+                                  env = [
+                                      {name = "MODEL", value = _model}
+                                      {name = "JUDGE_MODEL", value = _judgeModel}
+                                  ]
                                   ports = [{name = "health", containerPort = _PROXY_HEALTH_PORT, protocol = "TCP"}]
                                   # A native sidecar gates the next container only on its startupProbe:
                                   # without one the harness can reach :4000 before the proxy serves it.

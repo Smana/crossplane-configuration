@@ -556,6 +556,19 @@ test_proxy_disables_hot_restart = lambda {
     assert _proxy.args == ["-c", "/etc/envoy/envoy.yaml", "--log-level", "warn", "--disable-hot-restart", "--concurrency", "1"]
 }
 
+# ---- P4 (ai-native-ref capability profiles): the proxy pins the run's model and the judge's ----
+_proxyEnv = lambda spec: any -> any {
+    {e.name: e.value for e in _pod(_run(spec)).initContainers[0].env}
+}
+
+test_proxy_pins_the_run_model = lambda {
+    assert _proxyEnv({}) == {MODEL = "agent-default", JUDGE_MODEL = "none"}, "the claim's default model, and no judge path until the claim names a judge"
+    assert _proxyEnv({model = "tier-frontier", loop = {judgeModel = "tier-light"}}) == {MODEL = "tier-frontier", JUDGE_MODEL = "tier-light"}
+    _harness = {e.name: e.value for e in _pod(_run({model = "tier-frontier"})).containers[0].env}
+    assert _harness.MODEL == "tier-frontier", "the harness asks for the model the proxy pins"
+    assert "JUDGE_MODEL" not in _harness, "the loop policy's composition step gives the harness its judge"
+}
+
 # ---- M2: a finished run is Suspended, stays Ready, and never runs twice ----
 test_finished_run_suspends_its_sandbox = lambda {
     _live = _kind(_run({}), "Sandbox")[0]
