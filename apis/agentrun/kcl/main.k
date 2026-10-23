@@ -34,8 +34,9 @@ _HARNESS_PROFILES = {
         # comes from the step that made it. v0.15.0 (#132): internal runs (DATA_CLASS=internal)
         # use Anthropic prompt caching; nothing new to set here. v0.15.1 (#134, #140): the image's
         # Python lock takes its pending security fixes.
+        # agent-platform v0.18.0 (sandbox checks): AGENT_CHECKS runs the repository's checks.
         # The digest is the multi-arch index.
-        image = "ghcr.io/smana/agent-harness:v0.17.1@sha256:ef8427c8f376a9ad60fa27ee9c9942f01457243e39ddc32f36c8da2d979ce32b"
+        image = "ghcr.io/smana/agent-harness:v0.18.0@sha256:ef69f91a7cadee252e3fc6e9334403f01e42fcc35de423eb4a2eea22b57f8b30"
         port = 8000
         # agent-run, the image's entrypoint, starts agent-server on
         # 127.0.0.1:8000 itself. Its API is unauthenticated, so it stays off the
@@ -54,10 +55,10 @@ _SIZES = {
 }
 
 _EGRESS_PROFILES = {
-    github = ["github.com", "api.github.com", "codeload.github.com", "objects.githubusercontent.com", "raw.githubusercontent.com"]
+    github = ["github.com", "api.github.com", "codeload.github.com", "objects.githubusercontent.com", "raw.githubusercontent.com", "release-assets.githubusercontent.com"]
     pypi = ["pypi.org", "files.pythonhosted.org"]
     npm = ["registry.npmjs.org"]
-    golang = ["proxy.golang.org", "sum.golang.org"]
+    golang = ["proxy.golang.org", "sum.golang.org", "dl.google.com"]
     crates = ["index.crates.io", "static.crates.io"]
 }
 
@@ -74,7 +75,8 @@ _BROKER_FQDN = "room-broker.agent-system.svc.cluster.local"
 # identity-proxy, rendered only with roomRef, pinned by digest like the harness.
 # agent-platform v0.12.0: reads agentgateway's `<server>_<tool>` names (#117), and takes its
 # read-only MCP set from MCP_READ_ONLY_TOOLS (#106). v0.13.0 to v0.15.1 ship it unchanged.
-_BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.17.1@sha256:23141c661892a15f44d5e668d535a3053b859b07a50e4f9a6f9ae30e089c0b58"
+# v0.18.0 (sandbox checks) ships it unchanged.
+_BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.18.0@sha256:df634dabe7172376ab6166ec171e88a03866d5bf9cf9914fdbcb8d106f05a9a7"
 
 # The MCP tools the bridge lets through as plain; every other one is mcp.write and waits for
 # approval. Unset, that includes the room tools (#106 fails closed). agent-platform
@@ -325,11 +327,14 @@ _renderRun = lambda _oxr: any, _ocds: any, _dxr: any, _pods: any -> [any] {
 
     # The loop policy (ai-native-ref loops design L2, L3): agent-run reads the claim's spec.loop as
     # AGENT_LOOP, judgeModel always named so the harness and the proxy agree, and only when the
-    # claim carries one: without it the harness runs as before (agent-platform harness R1).
+    # claim names a loop key (stallSteps, continuations, judgeModel): without one the harness runs as
+    # before (agent-platform harness R1). spec.loop.checks alone never switches the policy on with its
+    # defaults, and never enters AGENT_LOOP.
+    _loopKeys = ["stallSteps", "continuations", "judgeModel"]
     _loopEnv = [{
         name = "AGENT_LOOP"
         value = json.encode({k: v for k, v in _spec.loop if k in ["stallSteps", "continuations"]} | {judgeModel = _judgeModel}, sort_keys=True)
-    }] if "loop" in _spec else []
+    }] if [k for k in _loopKeys if k in (_spec.loop or {})] else []
     _size = _SIZES[_spec.size or "small"]
     _profile = _HARNESS_PROFILES[_spec.harness or "openhands"]
     _maxMinutes = _spec.budget?.maxMinutes or 120
@@ -358,6 +363,16 @@ _renderRun = lambda _oxr: any, _ocds: any, _dxr: any, _pods: any -> [any] {
     assert not (_internal and _spec.egress?.profiles), "an internal run takes no egress profiles (T5)"
     _profiles = ([] if _internal else ["github"]) + (_spec.egress?.profiles or [])
     _fqdns = [f for p in _profiles for f in _EGRESS_PROFILES[p]]
+
+    # v3 feature 3 (agent-platform's sandbox checks, RC8): the harness runs the repository's checks and
+    # needs the pod's deadline for its final run (RC9). The checks need egress, which an internal run
+    # has none of: the XRD refuses that claim first; this holds if that rule is ever lost.
+    _checks = _spec.loop?.checks or False
+    assert not (_internal and _checks), "an internal run runs no repository checks"
+    _checksEnv = [
+        {name = "AGENT_CHECKS", value = "1"}
+        {name = "AGENT_RUN_SECONDS", value = str(_runSeconds)}
+    ] if _checks else []
 
     # P6 (agentgateway plan): the harness clones https://github.com/<repo>.git; git's
     # environment config sends an internal run's fetch to identity-proxy, then the
@@ -709,7 +724,7 @@ _renderRun = lambda _oxr: any, _ocds: any, _dxr: any, _pods: any -> [any] {
                             # honours LMNR_TRACE_CONTENT and injects traceparent; lmnr's LiteLLM one does neither.
                             {name = "LMNR_INSTRUMENTS", value = "openai"}
                             {name = "LMNR_TRACE_CONTENT", value = "false"}
-                        ] + ([{name = "TRACEPARENT", value = _tp}] if _tp else []) + _footerEnv + _bridgeEnv + _gitEnv + ([{name = "AGENT_SUSPENDABLE", value = "true"}] if _suspendable else []) + _loopEnv
+                        ] + ([{name = "TRACEPARENT", value = _tp}] if _tp else []) + _footerEnv + _bridgeEnv + _gitEnv + ([{name = "AGENT_SUSPENDABLE", value = "true"}] if _suspendable else []) + _loopEnv + _checksEnv
                         # No containerPort: agent-server listens on loopback only.
                         # timeoutSeconds covers python3's start-up under gVisor
                         # plus urlopen's own 2 s; kubelet's 1 s default would

@@ -78,6 +78,10 @@ spec:
                   message: "queueName is immutable and cannot be added or removed after creation"
                 - rule: "has(self.suspendable) == has(oldSelf.suspendable) && (!has(self.suspendable) || self.suspendable == oldSelf.suspendable)"
                   message: "suspendable is immutable and cannot be added or removed after creation"
+                # agent-platform v3 feature 3 (RC8): the checks need egress, which an internal run has
+                # none of. loop (checks included) is fixed at creation just below.
+                - rule: "self.dataClass != 'internal' || !has(self.loop) || !has(self.loop.checks) || !self.loop.checks"
+                  message: "an internal run runs no repository checks"
                 - rule: "has(self.loop) == has(oldSelf.loop) && (!has(self.loop) || self.loop == oldSelf.loop)"
                   message: "loop is immutable and cannot be added or removed after creation"
               properties:
@@ -171,6 +175,12 @@ spec:
                       type: integer
                       minimum: 0
                       maximum: 5
+                    checks:
+                      description: >-
+                        Run the repository's checks in the sandbox (agent-platform v3 feature 3): the harness
+                        gets AGENT_CHECKS=1 and the pod's deadline as AGENT_RUN_SECONDS. Alone it leaves the
+                        loop policy off. A public run only.
+                      type: boolean
                 dataClass:
                   description: |
                     public or internal. Picks the gateway audience, proxy port and listener,

@@ -274,7 +274,7 @@ _routerRulesFor = lambda spec: any -> any {
 
 test_public_run_keeps_github_egress = lambda {
     _fqdn = [e for e in _kind(_run({}), "CiliumNetworkPolicy")[0].spec.egress if e.toFQDNs][0]
-    assert [f.matchName for f in _fqdn.toFQDNs] == ["github.com", "api.github.com", "codeload.github.com", "objects.githubusercontent.com", "raw.githubusercontent.com"]
+    assert [f.matchName for f in _fqdn.toFQDNs] == ["github.com", "api.github.com", "codeload.github.com", "objects.githubusercontent.com", "raw.githubusercontent.com", "release-assets.githubusercontent.com"]
 }
 
 test_public_run_reaches_only_the_public_listener = lambda {
@@ -330,7 +330,7 @@ test_cnp_is_default_deny_with_named_egress = lambda {
     # Only the proxy's health listener: not agent-server (M6), not Envoy admin (I2).
     assert _spec.ingress == [{fromEntities = ["host"], toPorts = [{ports = [{port = "9902", protocol = "TCP"}]}]}]
     _fqdn = [e for e in _spec.egress if e.toFQDNs][0]
-    assert [f.matchName for f in _fqdn.toFQDNs] == ["github.com", "api.github.com", "codeload.github.com", "objects.githubusercontent.com", "raw.githubusercontent.com", "pypi.org", "files.pythonhosted.org"]
+    assert [f.matchName for f in _fqdn.toFQDNs] == ["github.com", "api.github.com", "codeload.github.com", "objects.githubusercontent.com", "raw.githubusercontent.com", "release-assets.githubusercontent.com", "pypi.org", "files.pythonhosted.org"]
     _dns = [n.matchName for n in _spec.egress[0].toPorts[0].rules.dns]
     assert "agent-router.agent-gateway.svc.cluster.local" in _dns and "pypi.org" in _dns
     _dnsRules = _spec.egress[0].toPorts[0].rules.dns
@@ -576,9 +576,9 @@ _harnessEnv = lambda spec: any -> any {
 
 test_loop_reaches_the_harness = lambda {
     assert "AGENT_LOOP" not in _harnessEnv({}), "no spec.loop: today's run"
-    assert _harnessEnv({
+    assert "AGENT_LOOP" not in _harnessEnv({
         loop = {}
-    }).AGENT_LOOP == '{"judgeModel": "none"}', "an empty loop: the harness's defaults, and no judge the proxy would refuse"
+    }), "an empty loop names no loop key: the harness runs as before"
     assert _harnessEnv({
         loop = {stallSteps = 40, continuations = 0}
     }).AGENT_LOOP == '{"continuations": 0, "judgeModel": "none", "stallSteps": 40}'
@@ -803,7 +803,7 @@ test_the_harness_knows_its_factory_task = lambda {
 
 test_the_harness_is_the_footer_build = lambda {
     _image = _pod(_run({})).containers[0].image
-    assert _image.startswith("ghcr.io/smana/agent-harness:v0.17.1@sha256:"), "the harness released by agent-platform v0.17.1"
+    assert _image.startswith("ghcr.io/smana/agent-harness:v0.18.0@sha256:"), "the harness released by agent-platform v0.18.0"
     assert "@sha256:" in _image, "pinned by digest"
 }
 
@@ -1325,4 +1325,39 @@ test_no_pod_or_a_malformed_image_id_projects_nothing = lambda {
     assert "harnessImage" not in _endWith({phase = "Running"}, _appliedSandbox(False, [{type = "Ready", status = "True"}]), [_runningPod("ghcr.io/smana/agent-harness:v0.17.1")]), "a tag is not a digest"
     assert "harnessImage" not in _endWith({phase = "Running"}, _appliedSandbox(False, [{type = "Ready", status = "True"}]), [_runningPod("")])
     assert "harnessImage" not in _status(_run({})), "kcl test: no requiredResources at all"
+}
+
+test_check_hosts_reach_the_cnp = lambda {
+    # v3 feature 3 (RC7): a GitHub release download lands on release-assets, Go's archive on dl.google.com.
+    _spec = _kind(_run({
+        egress = {profiles = ["golang"]}
+    }), "CiliumNetworkPolicy")[0].spec
+    _fqdns = [f.matchName for e in _spec.egress if e.toFQDNs for f in e.toFQDNs]
+    _dns = [n.matchName for n in _spec.egress[0].toPorts[0].rules.dns]
+    assert "release-assets.githubusercontent.com" in _fqdns and "release-assets.githubusercontent.com" in _dns
+    assert "dl.google.com" in _fqdns and "dl.google.com" in _dns
+}
+
+test_loop_checks_reach_the_harness = lambda {
+    # v3 feature 3 (RC8, RC9): AGENT_CHECKS and the pod's deadline, on a check-enabled run only.
+    _env = _harnessEnv({loop = {checks = True}, budget = {maxMinutes = 45}})
+    assert _env["AGENT_CHECKS"] == "1" and _env["AGENT_RUN_SECONDS"] == "2700"
+    _off = _harnessEnv({})
+    assert "AGENT_CHECKS" not in _off and "AGENT_RUN_SECONDS" not in _off, "a run without checks is today's"
+}
+
+test_checks_alone_do_not_switch_the_loop_policy_on = lambda {
+    # A checks-only claim must not turn the loop policy on with its defaults (80-step stall).
+    _only = _harnessEnv({
+        loop = {checks = True}
+    })
+    assert _only.AGENT_CHECKS == "1" and "AGENT_LOOP" not in _only
+    _loop = _harnessEnv({
+        loop = {stallSteps = 40}
+    })
+    assert _loop.AGENT_LOOP == '{"judgeModel": "none", "stallSteps": 40}' and "AGENT_CHECKS" not in _loop
+    _both = _harnessEnv({
+        loop = {stallSteps = 40, checks = True}
+    })
+    assert _both.AGENT_CHECKS == "1" and _both.AGENT_LOOP == '{"judgeModel": "none", "stallSteps": 40}', "checks never enters AGENT_LOOP"
 }
