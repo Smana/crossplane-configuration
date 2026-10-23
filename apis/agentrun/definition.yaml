@@ -181,6 +181,12 @@ spec:
                         gets AGENT_CHECKS=1 and the pod's deadline as AGENT_RUN_SECONDS. Alone it leaves the
                         loop policy off. A public run only.
                       type: boolean
+                    search:
+                      description: >-
+                        Offer an implementer the search tool (agent-platform v3 feature 5): the harness gets
+                        AGENT_SEARCH=1 and adds a read-only child with its own budget. Alone it leaves the
+                        loop policy off.
+                      type: boolean
                 dataClass:
                   description: |
                     public or internal. Picks the gateway audience, proxy port and listener,

@@ -239,7 +239,7 @@ spec:
           value: "1"
         - name: AGENT_RUN_SECONDS
           value: "14400"
-        image: ghcr.io/smana/agent-harness:v0.18.0@sha256:ef69f91a7cadee252e3fc6e9334403f01e42fcc35de423eb4a2eea22b57f8b30
+        image: ghcr.io/smana/agent-harness:v0.19.0@sha256:cdaf6b5fdda2c9bf8021863e7e34c3ec43b07efa3e2f38732eec69effa359275
         livenessProbe:
           exec:
             command:
@@ -394,7 +394,7 @@ spec:
           value: 12s
         - name: MCP_READ_ONLY_TOOLS
           value: flux-operator-mcp__search_flux_docs,flux-operator-mcp__get_flux_instance,flux-operator-mcp__get_kubernetes_api_versions,flux-operator-mcp__get_kubernetes_resources,flux-operator-mcp__get_kubernetes_metrics,flux-operator-mcp__get_kubernetes_logs,mcp-victoriametrics__documentation,mcp-victoriametrics__query,mcp-victoriametrics__query_range,mcp-victoriametrics__metrics,mcp-victoriametrics__metrics_metadata,mcp-victoriametrics__labels,mcp-victoriametrics__label_values,mcp-victoriametrics__series,mcp-victoriametrics__alerts,mcp-victoriametrics__rules,mcp-victoriametrics__explain_query,mcp-victoriametrics__prettify_query,mcp-victoriametrics__metric_statistics,mcp-victoriametrics__tsdb_status,mcp-victoriametrics__active_queries,mcp-victoriametrics__top_queries,mcp-victorialogs__documentation,mcp-victorialogs__query,mcp-victorialogs__hits,mcp-victorialogs__facets,mcp-victorialogs__field_names,mcp-victorialogs__field_values,mcp-victorialogs__stats_query,mcp-victorialogs__stats_query_range,mcp-victorialogs__streams,mcp-victorialogs__stream_ids,mcp-victorialogs__stream_field_names,mcp-victorialogs__stream_field_values,mcp-victorialogs__flags,room-broker__room_read,room-broker__room_post,room-broker__room_progress,room-broker__room_handoff,room-broker__room_verdict
-        image: ghcr.io/smana/room-bridge:v0.18.0@sha256:df634dabe7172376ab6166ec171e88a03866d5bf9cf9914fdbcb8d106f05a9a7
+        image: ghcr.io/smana/room-bridge:v0.19.0@sha256:8f8f4cc7db1df991516dbacd8f81ffb1a85d3ad99b8404e6d811f6fbbf33d414
         livenessProbe:
           failureThreshold: 3
           httpGet:
@@ -443,7 +443,7 @@ spec:
           readOnly: true
       - args:
         - gate
-        image: ghcr.io/smana/room-bridge:v0.18.0@sha256:df634dabe7172376ab6166ec171e88a03866d5bf9cf9914fdbcb8d106f05a9a7
+        image: ghcr.io/smana/room-bridge:v0.19.0@sha256:8f8f4cc7db1df991516dbacd8f81ffb1a85d3ad99b8404e6d811f6fbbf33d414
         name: room-gate
         resources:
           limits:

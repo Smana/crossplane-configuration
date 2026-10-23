@@ -35,8 +35,9 @@ _HARNESS_PROFILES = {
         # use Anthropic prompt caching; nothing new to set here. v0.15.1 (#134, #140): the image's
         # Python lock takes its pending security fixes.
         # agent-platform v0.18.0 (sandbox checks): AGENT_CHECKS runs the repository's checks.
+        # v0.19.0 (search tool): AGENT_SEARCH offers an implementer the search tool.
         # The digest is the multi-arch index.
-        image = "ghcr.io/smana/agent-harness:v0.18.0@sha256:ef69f91a7cadee252e3fc6e9334403f01e42fcc35de423eb4a2eea22b57f8b30"
+        image = "ghcr.io/smana/agent-harness:v0.19.0@sha256:cdaf6b5fdda2c9bf8021863e7e34c3ec43b07efa3e2f38732eec69effa359275"
         port = 8000
         # agent-run, the image's entrypoint, starts agent-server on
         # 127.0.0.1:8000 itself. Its API is unauthenticated, so it stays off the
@@ -75,8 +76,8 @@ _BROKER_FQDN = "room-broker.agent-system.svc.cluster.local"
 # identity-proxy, rendered only with roomRef, pinned by digest like the harness.
 # agent-platform v0.12.0: reads agentgateway's `<server>_<tool>` names (#117), and takes its
 # read-only MCP set from MCP_READ_ONLY_TOOLS (#106). v0.13.0 to v0.15.1 ship it unchanged.
-# v0.18.0 (sandbox checks) ships it unchanged.
-_BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.18.0@sha256:df634dabe7172376ab6166ec171e88a03866d5bf9cf9914fdbcb8d106f05a9a7"
+# v0.18.0 (sandbox checks) ships it unchanged. v0.19.0 (search tool) ships it unchanged.
+_BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.19.0@sha256:8f8f4cc7db1df991516dbacd8f81ffb1a85d3ad99b8404e6d811f6fbbf33d414"
 
 # The MCP tools the bridge lets through as plain; every other one is mcp.write and waits for
 # approval. Unset, that includes the room tools (#106 fails closed). agent-platform
@@ -373,6 +374,10 @@ _renderRun = lambda _oxr: any, _ocds: any, _dxr: any, _pods: any -> [any] {
         {name = "AGENT_CHECKS", value = "1"}
         {name = "AGENT_RUN_SECONDS", value = str(_runSeconds)}
     ] if _checks else []
+
+    # agent-platform v3 feature 5: the search tool, which the harness offers an implementer only. Like
+    # checks, it is no loop key: alone it leaves AGENT_LOOP unset (search design ST10).
+    _searchEnv = [{name = "AGENT_SEARCH", value = "1"}] if _spec.loop?.search else []
 
     # P6 (agentgateway plan): the harness clones https://github.com/<repo>.git; git's
     # environment config sends an internal run's fetch to identity-proxy, then the
@@ -724,7 +729,7 @@ _renderRun = lambda _oxr: any, _ocds: any, _dxr: any, _pods: any -> [any] {
                             # honours LMNR_TRACE_CONTENT and injects traceparent; lmnr's LiteLLM one does neither.
                             {name = "LMNR_INSTRUMENTS", value = "openai"}
                             {name = "LMNR_TRACE_CONTENT", value = "false"}
-                        ] + ([{name = "TRACEPARENT", value = _tp}] if _tp else []) + _footerEnv + _bridgeEnv + _gitEnv + ([{name = "AGENT_SUSPENDABLE", value = "true"}] if _suspendable else []) + _loopEnv + _checksEnv
+                        ] + ([{name = "TRACEPARENT", value = _tp}] if _tp else []) + _footerEnv + _bridgeEnv + _gitEnv + ([{name = "AGENT_SUSPENDABLE", value = "true"}] if _suspendable else []) + _loopEnv + _checksEnv + _searchEnv
                         # No containerPort: agent-server listens on loopback only.
                         # timeoutSeconds covers python3's start-up under gVisor
                         # plus urlopen's own 2 s; kubelet's 1 s default would
