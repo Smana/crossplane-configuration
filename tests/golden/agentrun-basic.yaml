@@ -56,6 +56,7 @@ spec:
         - matchName: codeload.github.com
         - matchName: objects.githubusercontent.com
         - matchName: raw.githubusercontent.com
+        - matchName: release-assets.githubusercontent.com
   - toEndpoints:
     - matchLabels:
         gateway.networking.k8s.io/gateway-name: agent-router
@@ -84,6 +85,7 @@ spec:
     - matchName: codeload.github.com
     - matchName: objects.githubusercontent.com
     - matchName: raw.githubusercontent.com
+    - matchName: release-assets.githubusercontent.com
     toPorts:
     - ports:
       - port: "443"
@@ -190,7 +192,7 @@ spec:
           value: openai
         - name: LMNR_TRACE_CONTENT
           value: "false"
-        image: ghcr.io/smana/agent-harness:v0.17.1@sha256:ef8427c8f376a9ad60fa27ee9c9942f01457243e39ddc32f36c8da2d979ce32b
+        image: ghcr.io/smana/agent-harness:v0.18.0@sha256:ef69f91a7cadee252e3fc6e9334403f01e42fcc35de423eb4a2eea22b57f8b30
         livenessProbe:
           exec:
             command:

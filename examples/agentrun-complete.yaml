@@ -22,6 +22,7 @@ spec:
     stallSteps: 80
     continuations: 2
     judgeModel: tier-light
+    checks: true
   dataClass: public
   task:
     url: "https://github.com/Smana/cloud-native-ref/pull/2090"
