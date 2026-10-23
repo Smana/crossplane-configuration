@@ -803,7 +803,7 @@ test_the_harness_knows_its_factory_task = lambda {
 
 test_the_harness_is_the_footer_build = lambda {
     _image = _pod(_run({})).containers[0].image
-    assert _image.startswith("ghcr.io/smana/agent-harness:v0.15.2@sha256:"), "the harness released by agent-platform v0.15.2"
+    assert _image.startswith("ghcr.io/smana/agent-harness:v0.17.1@sha256:"), "the harness released by agent-platform v0.17.1"
     assert "@sha256:" in _image, "pinned by digest"
 }
 
@@ -1322,7 +1322,7 @@ test_the_harness_image_latches = lambda {
 
 test_no_pod_or_a_malformed_image_id_projects_nothing = lambda {
     assert "harnessImage" not in _endWith({phase = "Running"}, _appliedSandbox(False, [{type = "Ready", status = "True"}]), [])
-    assert "harnessImage" not in _endWith({phase = "Running"}, _appliedSandbox(False, [{type = "Ready", status = "True"}]), [_runningPod("ghcr.io/smana/agent-harness:v0.15.2")]), "a tag is not a digest"
+    assert "harnessImage" not in _endWith({phase = "Running"}, _appliedSandbox(False, [{type = "Ready", status = "True"}]), [_runningPod("ghcr.io/smana/agent-harness:v0.17.1")]), "a tag is not a digest"
     assert "harnessImage" not in _endWith({phase = "Running"}, _appliedSandbox(False, [{type = "Ready", status = "True"}]), [_runningPod("")])
     assert "harnessImage" not in _status(_run({})), "kcl test: no requiredResources at all"
 }
