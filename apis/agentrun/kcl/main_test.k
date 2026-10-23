@@ -803,7 +803,7 @@ test_the_harness_knows_its_factory_task = lambda {
 
 test_the_harness_is_the_footer_build = lambda {
     _image = _pod(_run({})).containers[0].image
-    assert _image.startswith("ghcr.io/smana/agent-harness:v0.18.0@sha256:"), "the harness released by agent-platform v0.18.0"
+    assert _image.startswith("ghcr.io/smana/agent-harness:v0.19.0@sha256:"), "the harness released by agent-platform v0.19.0"
     assert "@sha256:" in _image, "pinned by digest"
 }
 
@@ -1360,4 +1360,23 @@ test_checks_alone_do_not_switch_the_loop_policy_on = lambda {
         loop = {stallSteps = 40, checks = True}
     })
     assert _both.AGENT_CHECKS == "1" and _both.AGENT_LOOP == '{"judgeModel": "none", "stallSteps": 40}', "checks never enters AGENT_LOOP"
+}
+
+test_loop_search_reaches_the_harness = lambda {
+    # agent-platform v3 feature 5 (ST9, ST10): AGENT_SEARCH on a search claim only, and never a loop.
+    _alone = _harnessEnv({
+        loop = {search = True}
+    })
+    assert _alone.AGENT_SEARCH == "1" and "AGENT_LOOP" not in _alone, "search alone switches no loop policy on"
+    _both = _harnessEnv({
+        loop = {search = True, stallSteps = 80, continuations = 2, judgeModel = "tier-light"}
+    })
+    assert _both.AGENT_SEARCH == "1"
+    assert _both.AGENT_LOOP == '{"continuations": 2, "judgeModel": "tier-light", "stallSteps": 80}', "search never joins the loop's value"
+    assert "AGENT_SEARCH" not in _harnessEnv({}) and "AGENT_SEARCH" not in _harnessEnv({
+        loop = {stallSteps = 80}
+    }), "no search: today's run"
+    assert _proxyEnv({
+        loop = {search = True}
+    }).JUDGE_MODEL == "none", "search names no judge"
 }

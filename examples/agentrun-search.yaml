@@ -1,0 +1,17 @@
+---
+# AgentRun with the search tool (agent-platform v3 feature 5): an implementer whose class's loops row
+# sets search. spec.loop holds no loop key, so the render has AGENT_SEARCH and no AGENT_LOOP (ST10).
+apiVersion: cloud.ogenki.io/v1alpha1
+kind: AgentRun
+metadata:
+  name: xplane-run-7f3cq2xz
+  namespace: agents
+spec:
+  role: implementer
+  repository: Smana/cloud-native-ref
+  principal: "system:factory"
+  dataClass: public
+  loop:
+    search: true
+  task:
+    text: "Fix the broken relative link in docs/superpowers/README.md."
