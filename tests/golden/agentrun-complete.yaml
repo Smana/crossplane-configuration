@@ -229,6 +229,8 @@ spec:
           value: https://github.com/Smana/cloud-native-ref/pull/2090
         - name: BRIDGE_URL
           value: http://127.0.0.1:8085
+        - name: AGENT_LOOP
+          value: '{"continuations": 2, "judgeModel": "tier-light", "stallSteps": 80}'
         image: ghcr.io/smana/agent-harness:v0.15.2@sha256:c49cece37477cc70a1f88283438d588abd7610bda00830b73fbfc53fc7f99893
         livenessProbe:
           exec:

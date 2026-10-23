@@ -151,14 +151,26 @@ spec:
                     - {rule: "self == oldSelf", message: "model is immutable"}
                 loop:
                   description: >-
-                    The run's loop policy (ai-native-ref loops design L2). judgeModel is the alias the
-                    completion judge calls through the identity proxy's /judge/v1 path, which the proxy pins to
-                    it (capability profiles P4); unset, the gateway refuses that path.
+                    The run's loop policy (ai-native-ref loops design L2, L3), set by the factory on an
+                    implementer of a class whose loop is on. The harness gets the whole object as
+                    AGENT_LOOP. judgeModel is the alias the completion judge calls through the identity
+                    proxy's /judge/v1 path, which the proxy pins to it (capability profiles P4); unset,
+                    the gateway refuses that path and the harness calls no judge.
                   type: object
                   properties:
                     judgeModel:
                       type: string
                       enum: [agent-default, tier-light, tier-standard, tier-frontier]
+                    stallSteps:
+                      description: The run ends stalled with no commit by this many steps (L3); the harness's default is 80.
+                      type: integer
+                      minimum: 1
+                      maximum: 500
+                    continuations:
+                      description: How many not_yet verdicts continue the conversation (L2); the harness's default is 2.
+                      type: integer
+                      minimum: 0
+                      maximum: 5
                 dataClass:
                   description: |
                     public or internal. Picks the gateway audience, proxy port and listener,
