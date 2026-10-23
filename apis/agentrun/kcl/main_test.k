@@ -569,6 +569,28 @@ test_proxy_pins_the_run_model = lambda {
     assert "JUDGE_MODEL" not in _harness, "the loop policy's composition step gives the harness its judge"
 }
 
+# ---- Loop policy part 2: the claim's spec.loop reaches agent-run as AGENT_LOOP, only when present ----
+_harnessEnv = lambda spec: any -> any {
+    {e.name: e.value for e in _pod(_run(spec)).containers[0].env}
+}
+
+test_loop_reaches_the_harness = lambda {
+    assert "AGENT_LOOP" not in _harnessEnv({}), "no spec.loop: today's run"
+    assert _harnessEnv({
+        loop = {}
+    }).AGENT_LOOP == '{"judgeModel": "none"}', "an empty loop: the harness's defaults, and no judge the proxy would refuse"
+    assert _harnessEnv({
+        loop = {stallSteps = 40, continuations = 0}
+    }).AGENT_LOOP == '{"continuations": 0, "judgeModel": "none", "stallSteps": 40}'
+    _full = _harnessEnv({
+        loop = {stallSteps = 80, continuations = 2, judgeModel = "tier-light"}
+    })
+    assert _full.AGENT_LOOP == '{"continuations": 2, "judgeModel": "tier-light", "stallSteps": 80}'
+    assert _proxyEnv({
+        loop = {stallSteps = 80, judgeModel = "tier-light"}
+    }).JUDGE_MODEL == "tier-light", "the harness and the proxy name one judge"
+}
+
 # ---- M2: a finished run is Suspended, stays Ready, and never runs twice ----
 test_finished_run_suspends_its_sandbox = lambda {
     _live = _kind(_run({}), "Sandbox")[0]
@@ -781,7 +803,7 @@ test_the_harness_knows_its_factory_task = lambda {
 
 test_the_harness_is_the_footer_build = lambda {
     _image = _pod(_run({})).containers[0].image
-    assert _image.startswith("ghcr.io/smana/agent-harness:v0.15.2@sha256:"), "the harness released by agent-platform v0.15.2"
+    assert _image.startswith("ghcr.io/smana/agent-harness:v0.17.1@sha256:"), "the harness released by agent-platform v0.17.1"
     assert "@sha256:" in _image, "pinned by digest"
 }
 
@@ -1300,7 +1322,7 @@ test_the_harness_image_latches = lambda {
 
 test_no_pod_or_a_malformed_image_id_projects_nothing = lambda {
     assert "harnessImage" not in _endWith({phase = "Running"}, _appliedSandbox(False, [{type = "Ready", status = "True"}]), [])
-    assert "harnessImage" not in _endWith({phase = "Running"}, _appliedSandbox(False, [{type = "Ready", status = "True"}]), [_runningPod("ghcr.io/smana/agent-harness:v0.15.2")]), "a tag is not a digest"
+    assert "harnessImage" not in _endWith({phase = "Running"}, _appliedSandbox(False, [{type = "Ready", status = "True"}]), [_runningPod("ghcr.io/smana/agent-harness:v0.17.1")]), "a tag is not a digest"
     assert "harnessImage" not in _endWith({phase = "Running"}, _appliedSandbox(False, [{type = "Ready", status = "True"}]), [_runningPod("")])
     assert "harnessImage" not in _status(_run({})), "kcl test: no requiredResources at all"
 }

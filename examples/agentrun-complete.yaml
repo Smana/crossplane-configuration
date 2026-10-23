@@ -19,6 +19,8 @@ spec:
   principal: "system:factory"
   model: tier-standard
   loop:
+    stallSteps: 80
+    continuations: 2
     judgeModel: tier-light
   dataClass: public
   task:
