@@ -82,7 +82,11 @@ spec:
                 # none of. loop (checks included) is fixed at creation just below.
                 - rule: "self.dataClass != 'internal' || !has(self.loop) || !has(self.loop.checks) || !self.loop.checks"
                   message: "an internal run runs no repository checks"
-                - rule: "has(self.loop) == has(oldSelf.loop) && (!has(self.loop) || self.loop == oldSelf.loop)"
+                # Presence only: the comparison lives on loop itself (self == oldSelf), as task and
+                # egress hold theirs. Written here as self.loop == oldSelf.loop, the apiserver prices
+                # it at more than 100x the CEL cost budget, refuses the CRD Crossplane renders, and
+                # the XRD never establishes (gcp-0, 2026-10-27).
+                - rule: "has(self.loop) == has(oldSelf.loop)"
                   message: "loop is immutable and cannot be added or removed after creation"
               properties:
                 role:
@@ -161,6 +165,8 @@ spec:
                     proxy's /judge/v1 path, which the proxy pins to it (capability profiles P4); unset,
                     the gateway refuses that path and the harness calls no judge.
                   type: object
+                  x-kubernetes-validations:
+                    - {rule: "self == oldSelf", message: "loop is immutable and cannot be added or removed after creation"}
                   properties:
                     judgeModel:
                       type: string
