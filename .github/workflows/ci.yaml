@@ -40,7 +40,7 @@ jobs:
         run: task test
 
       - name: Generator unit tests
-        run: python3 -m pytest tests/test_generate.py -v
+        run: python3 -m pytest tests/test_generate.py tests/test_xrd_rules.py -v
 
       # The Compositions are generated artifacts. If main.k changed without a
       # regenerate, what ships would not match the module it claims to inline.
