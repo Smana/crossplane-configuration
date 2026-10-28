@@ -40,7 +40,7 @@ _HARNESS_PROFILES = {
         # v0.29.6: the tester contract hook reads AGENT_CONTRACT_FILE (optional, defaults to /workspace/.agent-contract.json); nothing new to set.
         # v0.29.7: the harness tags the run's reasoning effort (LLM_REASONING_EFFORT, default high) for the room and rooms_run_info; nothing new to set.
         # The digest is the multi-arch index.
-        image = "ghcr.io/smana/agent-harness:v0.29.9@sha256:c9eb81144142d2bb6dee1c38ca17fe7aedbfb1252128e2cbe5c7aa9102a6f8f5"
+        image = "ghcr.io/smana/agent-harness:v0.29.12@sha256:ea272b62b7ac136e72f27b36f5f0e2d4e3998ec01f22a384cca08c1575aeb2f2"
         port = 8000
         # agent-run, the image's entrypoint, starts agent-server on
         # 127.0.0.1:8000 itself. Its API is unauthenticated, so it stays off the
@@ -79,8 +79,8 @@ _BROKER_FQDN = "room-broker.agent-system.svc.cluster.local"
 # identity-proxy, rendered only with roomRef, pinned by digest like the harness.
 # agent-platform v0.12.0: reads agentgateway's `<server>_<tool>` names (#117), and takes its
 # read-only MCP set from MCP_READ_ONLY_TOOLS (#106). v0.13.0 to v0.15.1 ship it unchanged.
-# v0.18.0 (sandbox checks) ships it unchanged. v0.19.0 (search tool) to v0.29.9 ship it unchanged, except v0.29.7 reads the harness's effort tag into harness_status.
-_BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.29.9@sha256:7214702d2607b060b16e686b7b338e5f215471810a0ed1c5a565989020df3a93"
+# v0.18.0 (sandbox checks) ships it unchanged. v0.19.0 (search tool) to v0.29.12 ship it unchanged, except v0.29.7 reads the harness's effort tag into harness_status.
+_BRIDGE_IMAGE = "ghcr.io/smana/room-bridge:v0.29.12@sha256:531bf8762c50f72aa9bba236ba1a24cb8c3fe7b8a4c353096718adeef1fe4e47"
 
 # The MCP tools the bridge lets through as plain; every other one is mcp.write and waits for
 # approval. Unset, that includes the room tools (#106 fails closed). agent-platform
