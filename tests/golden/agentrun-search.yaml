@@ -194,7 +194,7 @@ spec:
           value: "false"
         - name: AGENT_SEARCH
           value: "1"
-        image: ghcr.io/smana/agent-harness:v0.27.0@sha256:03c7a2e65594237979a01dea2e80a6c33ea9369eb8a9263eeadffe958a8c2e4e
+        image: ghcr.io/smana/agent-harness:v0.29.6@sha256:3ed23c4bfdbafb4a65ea3b3a16c5781ea2a779f199d1ffde38a402ac57b77918
         livenessProbe:
           exec:
             command:
