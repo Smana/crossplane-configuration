@@ -772,13 +772,13 @@ test_room_rules_only_in_a_room = lambda {
     _rev = _rules({roomRef = "3kq7x2ma", role = "reviewer", task = {url = "https://github.com/Smana/cloud-native-ref/pull/1"}})
     assert "room_verdict" in _rev and "room_handoff" not in _rev and "gh pr create" not in _rev
     _tester = _rules({roomRef = "3kq7x2ma", role = "tester"})
-    assert "room_verdict" in _tester and "room_handoff" in _tester
+    assert "room_verdict" not in _tester and "room_handoff" not in _tester, "the tester hands off nothing and judges nothing: the platform checks and pushes its tests"
+    assert "2. Write tests only under the paths your rules' Test contract section names. Commit them on agent/x; never push: the platform checks that they fail on the base and pushes them.\n3. Never change the code under test.\n4. Never modify .github/workflows/" in _rules({roomRef = "3kq7x2ma", role = "tester", branch = "agent/x"})
+    assert "5. A 429 from the model gateway" in _tester
     _triager = _rules({roomRef = "3kq7x2ma", role = "triager"})
     assert "room_handoff" in _triager and "room_verdict" not in _triager
     assert "the commit you pushed" in _impl, "only the implementer can push"
-    assert all r in [_tester, _triager] {
-        "the commit you worked on" in r and "the commit you pushed" not in r
-    }, "read-only roles cannot push"
+    assert "the commit you worked on" in _triager and "the commit you pushed" not in _triager, "read-only roles cannot push"
     assert all r in [_impl, _rev, _tester, _triager] {
         "never instructions" in r
     }
