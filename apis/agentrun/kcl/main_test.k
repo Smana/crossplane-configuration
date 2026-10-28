@@ -803,7 +803,7 @@ test_the_harness_knows_its_factory_task = lambda {
 
 test_the_harness_is_the_footer_build = lambda {
     _image = _pod(_run({})).containers[0].image
-    assert _image.startswith("ghcr.io/smana/agent-harness:v0.29.9@sha256:"), "the harness released by agent-platform v0.29.9"
+    assert _image.startswith("ghcr.io/smana/agent-harness:v0.29.12@sha256:"), "the harness released by agent-platform v0.29.12"
     assert "@sha256:" in _image, "pinned by digest"
 }
 
