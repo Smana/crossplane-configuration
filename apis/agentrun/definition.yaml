@@ -82,6 +82,11 @@ spec:
                 # none of. loop (checks included) is fixed at creation just below.
                 - rule: "self.dataClass != 'internal' || !has(self.loop) || !has(self.loop.checks) || !self.loop.checks"
                   message: "an internal run runs no repository checks"
+                # v3 F15 (F4): Moonshot processes in China and Mistral in the EU, so a provider alias
+                # is a public run's only, as its model or its judge's (mistral-light, the one a judge
+                # may take). maku's AgentRun CRD carries the same rule.
+                - rule: "self.dataClass == 'public' || ((!has(self.model) || !(self.model in ['kimi-frontier', 'mistral-standard', 'mistral-light'])) && (!has(self.loop) || !has(self.loop.judgeModel) || self.loop.judgeModel != 'mistral-light'))"
+                  message: "an internal run never names a provider alias"
                 # Presence only: the comparison lives on loop itself (self == oldSelf), as task and
                 # egress hold theirs. Written here as self.loop == oldSelf.loop, the apiserver prices
                 # it at more than 100x the CEL cost budget, refuses the CRD Crossplane renders, and
@@ -151,9 +156,12 @@ spec:
                   x-kubernetes-validations:
                     - {rule: "self == oldSelf", message: "principal is immutable"}
                 model:
-                  description: A logical model name (C5), resolved by the class's listener.
+                  description: >-
+                    A logical model name (C5), resolved by the class's listener, or a provider alias
+                    (v3 F15: kimi-frontier, mistral-standard, mistral-light), which the gateway routes
+                    from the public listener only.
                   type: string
-                  enum: [agent-default, tier-light, tier-standard, tier-frontier]
+                  enum: [agent-default, tier-light, tier-standard, tier-frontier, kimi-frontier, mistral-standard, mistral-light]
                   default: agent-default
                   x-kubernetes-validations:
                     - {rule: "self == oldSelf", message: "model is immutable"}
@@ -169,8 +177,9 @@ spec:
                     - {rule: "self == oldSelf", message: "loop is immutable and cannot be added or removed after creation"}
                   properties:
                     judgeModel:
+                      description: A C5 name, or mistral-light, the one provider alias a judge may take (v3 F15), a public run's only.
                       type: string
-                      enum: [agent-default, tier-light, tier-standard, tier-frontier]
+                      enum: [agent-default, tier-light, tier-standard, tier-frontier, mistral-light]
                     stallSteps:
                       description: The run ends stalled with no commit by this many steps (L3); the harness's default is 80.
                       type: integer

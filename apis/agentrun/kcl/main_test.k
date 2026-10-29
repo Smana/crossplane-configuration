@@ -569,6 +569,12 @@ test_proxy_pins_the_run_model = lambda {
     assert "JUDGE_MODEL" not in _harness, "the loop policy's composition step gives the harness its judge"
 }
 
+# ---- v3 F15: the provider aliases reach the proxy pinned, a public run's only ----
+test_provider_aliases_are_pinned = lambda {
+    assert _proxyEnv({model = "kimi-frontier"}).MODEL == "kimi-frontier", "the proxy pins Moonshot's alias"
+    assert _proxyEnv({model = "mistral-standard", loop = {judgeModel = "mistral-light"}}) == {MODEL = "mistral-standard", JUDGE_MODEL = "mistral-light"}, "the proxy pins Mistral's aliases, the judge's included"
+}
+
 # ---- Loop policy part 2: the claim's spec.loop reaches agent-run as AGENT_LOOP, only when present ----
 _harnessEnv = lambda spec: any -> any {
     {e.name: e.value for e in _pod(_run(spec)).containers[0].env}

@@ -1,0 +1,28 @@
+# expect: an internal run never names a provider alias
+# v3 F15, F4: Moonshot processes in China and Mistral in the EU. The XRD refuses this claim too
+# (model); this proves the composition does not depend on it.
+kcl_options:
+  - key: params
+    value:
+      oxr:
+        apiVersion: cloud.ogenki.io/v1alpha1
+        kind: AgentRun
+        metadata:
+          name: xplane-run-7f3cq2xz
+          namespace: agents
+          uid: 0b3c6f0e-5d1a-4b8e-9f41-2a7c3e9d8b10
+        spec:
+          role: triager
+          repository: Smana/cloud-native-ref
+          principal: "system:runlore"
+          dataClass: internal
+          task:
+            text: "Investigate the alert."
+          model: kimi-frontier
+      ocds: {}
+      dxr:
+        apiVersion: cloud.ogenki.io/v1alpha1
+        kind: AgentRun
+        metadata:
+          name: xplane-run-7f3cq2xz
+          namespace: agents
