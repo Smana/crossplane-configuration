@@ -395,6 +395,12 @@ spec:
               # has none of: the XRD refuses that claim first; this holds if that rule is ever lost.
               _checks = _spec.loop?.checks or False
               assert not (_internal and _checks), "an internal run runs no repository checks"
+
+              # v3 F15 (F4): Moonshot processes in China and Mistral in the EU, so a provider alias is a public
+              # run's only, as its model or its judge's. The XRD refuses that claim first; this holds if that
+              # rule is ever lost.
+              _providerAliases = ["kimi-frontier", "mistral-standard", "mistral-light"]
+              assert not (_internal and (_spec.model in _providerAliases or _spec.loop?.judgeModel in _providerAliases)), "an internal run never names a provider alias"
               _checksEnv = [
                   {name = "AGENT_CHECKS", value = "1"}
                   {name = "AGENT_RUN_SECONDS", value = str(_runSeconds)}
