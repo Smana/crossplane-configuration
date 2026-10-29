@@ -515,7 +515,7 @@ test_readiness_follows_the_sandbox = lambda {
 test_harness_profile_is_the_platform_image = lambda {
     _c = _pod(_run({})).containers[0]
     # The version is test_the_harness_is_the_footer_build's to pin: this profile runs S5's harness.
-    assert _c.image.startswith("ghcr.io/smana/agent-harness:"), "the openhands profile is the repo-built harness (S7)"
+    assert _c.image.startswith("ghcr.io/smana/maku-harness:"), "the openhands profile is the repo-built harness (S7)"
     assert "@sha256:" in _c.image, "pinned by digest"
     assert _c.args == [], "agent-run starts agent-server on 127.0.0.1:8000 itself"
     assert "lifecycle" not in _c, "no preStop: agent-run revokes the token after its checkpoint push (disruption design §2)"
@@ -685,7 +685,7 @@ test_room_bridge_only_with_a_room = lambda {
     assert [c.name for c in _p.initContainers] == ["identity-proxy", "room-bridge", "room-gate"], "the bridge starts after the proxy, and the gate after the bridge"
     _b = _p.initContainers[1]
     assert _b.restartPolicy == "Always", "a native sidecar lets the pod finish when the harness exits"
-    assert _b.image.startswith("ghcr.io/smana/room-bridge:") and "@sha256:" in _b.image, "pinned by digest"
+    assert _b.image.startswith("ghcr.io/smana/maku-bridge:") and "@sha256:" in _b.image, "pinned by digest"
     _env = {e.name: e.value for e in _b.env}
     assert _env.ROOM_ID == "3kq7x2ma" and _env.RUN_ID == "7f3cq2xz"
     assert _env.CONVERSATION_ID == "0b3c6f0e-5d1a-4b8e-9f41-2a7c3e9d8b10", "the harness's conversation id"
@@ -809,7 +809,7 @@ test_the_harness_knows_its_factory_task = lambda {
 
 test_the_harness_is_the_footer_build = lambda {
     _image = _pod(_run({})).containers[0].image
-    assert _image.startswith("ghcr.io/smana/agent-harness:v0.29.12@sha256:"), "the harness released by agent-platform v0.29.12"
+    assert _image.startswith("ghcr.io/smana/maku-harness:v0.30.2@sha256:"), "the harness released by maku v0.30.2"
     assert "@sha256:" in _image, "pinned by digest"
 }
 
