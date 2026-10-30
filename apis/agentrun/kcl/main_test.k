@@ -1386,3 +1386,11 @@ test_loop_search_reaches_the_harness = lambda {
         loop = {search = True}
     }).JUDGE_MODEL == "none", "search names no judge"
 }
+
+# A reviewer carries the factory's brief beside its pull request: task.md is the text, and TASK_URL
+# still names the pull request.
+test_a_reviewer_with_text_and_url_writes_the_text = lambda {
+    _spec = {role = "reviewer", task = {text = "Review for the brief: check the migration.", url = "https://github.com/Smana/cloud-native-ref/pull/1"}}
+    assert _kind(_run(_spec), "ConfigMap")[0].data["task.md"] == "Review for the brief: check the migration."
+    assert _harnessEnv(_spec)["TASK_URL"] == "https://github.com/Smana/cloud-native-ref/pull/1"
+}
