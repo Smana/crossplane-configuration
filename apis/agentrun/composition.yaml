@@ -61,7 +61,7 @@ spec:
                   # v0.29.6: the tester contract hook reads AGENT_CONTRACT_FILE (optional, defaults to /workspace/.agent-contract.json); nothing new to set.
                   # v0.29.7: the harness tags the run's reasoning effort (LLM_REASONING_EFFORT, default high) for the room and rooms_run_info; nothing new to set.
                   # The digest is the multi-arch index.
-                  image = "ghcr.io/smana/maku-harness:v0.31.0@sha256:e8d92ef0b04c725e9fb96ee29c109de92cb229402518e38d3a00e5a069612441"
+                  image = "ghcr.io/smana/maku-harness:v0.32.3@sha256:d6ec677262d10342dee4e8ba53af087e7d6f227502c0cc7c2ecfe4d6636c040e"
                   port = 8000
                   # agent-run, the image's entrypoint, starts agent-server on
                   # 127.0.0.1:8000 itself. Its API is unauthenticated, so it stays off the
@@ -100,8 +100,8 @@ spec:
           # identity-proxy, rendered only with roomRef, pinned by digest like the harness.
           # agent-platform v0.12.0: reads agentgateway's `<server>_<tool>` names (#117), and takes its
           # read-only MCP set from MCP_READ_ONLY_TOOLS (#106). v0.13.0 to v0.15.1 ship it unchanged.
-          # v0.18.0 (sandbox checks) ships it unchanged. v0.19.0 (search tool) to v0.29.12 ship it unchanged (maku v0.30.0 renames it maku-bridge; v0.30.2 and v0.31.0 ship it unchanged), except v0.29.7 reads the harness's effort tag into harness_status.
-          _BRIDGE_IMAGE = "ghcr.io/smana/maku-bridge:v0.31.0@sha256:d9fa37b16bca6ffc220b5455f4788f3d79fbddb2fd1eb573857c3550de7f0d46"
+          # v0.18.0 (sandbox checks) ships it unchanged. v0.19.0 (search tool) to v0.29.12 ship it unchanged (maku v0.30.0 renames it maku-bridge; v0.30.2, v0.31.0, v0.32.2 and v0.32.3 ship it unchanged, v0.32.x only rewording one comment in finalread.go), except v0.29.7 reads the harness's effort tag into harness_status.
+          _BRIDGE_IMAGE = "ghcr.io/smana/maku-bridge:v0.32.3@sha256:82cb99e5cc47cc79ffec430c58e434d6dc65c1cd500f7434edabb39de95a11af"
 
           # The MCP tools the bridge lets through as plain; every other one is mcp.write and waits for
           # approval. Unset, that includes the room tools (#106 fails closed). agent-platform

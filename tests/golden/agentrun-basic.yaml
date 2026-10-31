@@ -192,7 +192,7 @@ spec:
           value: openai
         - name: LMNR_TRACE_CONTENT
           value: "false"
-        image: ghcr.io/smana/maku-harness:v0.31.0@sha256:e8d92ef0b04c725e9fb96ee29c109de92cb229402518e38d3a00e5a069612441
+        image: ghcr.io/smana/maku-harness:v0.32.3@sha256:d6ec677262d10342dee4e8ba53af087e7d6f227502c0cc7c2ecfe4d6636c040e
         livenessProbe:
           exec:
             command:
