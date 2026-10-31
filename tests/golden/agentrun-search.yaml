@@ -194,7 +194,7 @@ spec:
           value: "false"
         - name: AGENT_SEARCH
           value: "1"
-        image: ghcr.io/smana/maku-harness:v0.31.0@sha256:e8d92ef0b04c725e9fb96ee29c109de92cb229402518e38d3a00e5a069612441
+        image: ghcr.io/smana/maku-harness:v0.32.2@sha256:5295e95052aecfa1c7df411157ed3d0b3e8b833a2023be7b96b9d9b5047c50d5
         livenessProbe:
           exec:
             command:
