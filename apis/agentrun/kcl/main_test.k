@@ -809,7 +809,7 @@ test_the_harness_knows_its_factory_task = lambda {
 
 test_the_harness_is_the_footer_build = lambda {
     _image = _pod(_run({})).containers[0].image
-    assert _image.startswith("ghcr.io/smana/maku-harness:v0.32.2@sha256:"), "the harness released by maku v0.32.2"
+    assert _image.startswith("ghcr.io/smana/maku-harness:v0.32.3@sha256:"), "the harness released by maku v0.32.3"
     assert "@sha256:" in _image, "pinned by digest"
 }
 

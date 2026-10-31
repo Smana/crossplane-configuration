@@ -198,7 +198,7 @@ spec:
           value: url.http://127.0.0.1:4002/github/.insteadOf
         - name: GIT_CONFIG_VALUE_0
           value: https://github.com/
-        image: ghcr.io/smana/maku-harness:v0.32.2@sha256:5295e95052aecfa1c7df411157ed3d0b3e8b833a2023be7b96b9d9b5047c50d5
+        image: ghcr.io/smana/maku-harness:v0.32.3@sha256:d6ec677262d10342dee4e8ba53af087e7d6f227502c0cc7c2ecfe4d6636c040e
         livenessProbe:
           exec:
             command:
@@ -353,7 +353,7 @@ spec:
           value: 12s
         - name: MCP_READ_ONLY_TOOLS
           value: flux-operator-mcp__search_flux_docs,flux-operator-mcp__get_flux_instance,flux-operator-mcp__get_kubernetes_api_versions,flux-operator-mcp__get_kubernetes_resources,flux-operator-mcp__get_kubernetes_metrics,flux-operator-mcp__get_kubernetes_logs,mcp-victoriametrics__documentation,mcp-victoriametrics__query,mcp-victoriametrics__query_range,mcp-victoriametrics__metrics,mcp-victoriametrics__metrics_metadata,mcp-victoriametrics__labels,mcp-victoriametrics__label_values,mcp-victoriametrics__series,mcp-victoriametrics__alerts,mcp-victoriametrics__rules,mcp-victoriametrics__explain_query,mcp-victoriametrics__prettify_query,mcp-victoriametrics__metric_statistics,mcp-victoriametrics__tsdb_status,mcp-victoriametrics__active_queries,mcp-victoriametrics__top_queries,mcp-victorialogs__documentation,mcp-victorialogs__query,mcp-victorialogs__hits,mcp-victorialogs__facets,mcp-victorialogs__field_names,mcp-victorialogs__field_values,mcp-victorialogs__stats_query,mcp-victorialogs__stats_query_range,mcp-victorialogs__streams,mcp-victorialogs__stream_ids,mcp-victorialogs__stream_field_names,mcp-victorialogs__stream_field_values,mcp-victorialogs__flags,room-broker__room_read,room-broker__room_post,room-broker__room_progress,room-broker__room_handoff,room-broker__room_verdict
-        image: ghcr.io/smana/maku-bridge:v0.32.2@sha256:a1bf304ef60848492dbfaa3d2964926980f89edd095c508aebe1b6f4942b5189
+        image: ghcr.io/smana/maku-bridge:v0.32.3@sha256:82cb99e5cc47cc79ffec430c58e434d6dc65c1cd500f7434edabb39de95a11af
         livenessProbe:
           failureThreshold: 3
           httpGet:
@@ -402,7 +402,7 @@ spec:
           readOnly: true
       - args:
         - gate
-        image: ghcr.io/smana/maku-bridge:v0.32.2@sha256:a1bf304ef60848492dbfaa3d2964926980f89edd095c508aebe1b6f4942b5189
+        image: ghcr.io/smana/maku-bridge:v0.32.3@sha256:82cb99e5cc47cc79ffec430c58e434d6dc65c1cd500f7434edabb39de95a11af
         name: room-gate
         resources:
           limits:
