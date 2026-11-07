@@ -694,7 +694,11 @@ test_room_bridge_only_with_a_room = lambda {
     assert _env.HARNESS_URL == "http://127.0.0.1:8000" and _env.ROOM_TOKEN_FILE == "/var/run/secrets/agents/room/token"
     # agent-platform#106: unset, the bridge classes every MCP tool mcp.write, room tools included.
     _ro = _env.MCP_READ_ONLY_TOOLS.split(",")
-    assert len(_ro) == 40 and "room-broker__room_post" in _ro and "flux-operator-mcp__get_kubernetes_logs" in _ro and "mcp-victoriametrics__top_queries" in _ro and "mcp-victorialogs__stream_field_values" in _ro
+    assert len(_ro) == 42 and "room-broker__room_post" in _ro and "flux-operator-mcp__get_kubernetes_logs" in _ro and "mcp-victoriametrics__top_queries" in _ro and "mcp-victorialogs__stream_field_values" in _ro
+
+    # RunLore's knowledge base (the internal triager's kb_search and kb_get, ai-native-ref's gateway allows only
+    # these two): read-only text. Absent, one kb_search in a step vetoed the whole step as mcp.write (aws-0, 2026-11-07).
+    assert "runlore-kb__kb_search" in _ro and "runlore-kb__kb_get" in _ro, "the knowledge base reads are plain"
     assert _env.EGRESS_PROFILES == "github"
 
     # The kubelet signals the bridge only after the harness exits: agent-run's shutdown sequence
