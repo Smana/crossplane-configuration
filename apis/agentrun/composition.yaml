@@ -111,6 +111,9 @@ spec:
               "mcp-victoriametrics" = ["documentation", "query", "query_range", "metrics", "metrics_metadata", "labels", "label_values", "series", "alerts", "rules", "explain_query", "prettify_query", "metric_statistics", "tsdb_status", "active_queries", "top_queries"]
               "mcp-victorialogs" = ["documentation", "query", "hits", "facets", "field_names", "field_values", "stats_query", "stats_query_range", "streams", "stream_ids", "stream_field_names", "stream_field_values", "flags"]
               "room-broker" = ["room_read", "room_post", "room_progress", "room_handoff", "room_verdict"]
+              # RunLore's knowledge base: the only two tools ai-native-ref's gateway lets the internal triager
+              # reach, and both return text. Without them a kb_search vetoed its whole step as mcp.write.
+              "runlore-kb" = ["kb_search", "kb_get"]
           }
           _MCP_READ_ONLY_TOOLS = ",".join(["{}__{}".format(srv, t) for srv, tools in _MCP_READ_ONLY for t in tools])
           _BRIDGE_HEALTH_PORT = 8085
