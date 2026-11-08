@@ -679,6 +679,22 @@ test_traceparent_annotation_reaches_the_harness = lambda {
     assert "TRACEPARENT" not in _envOf({}), "no annotation: the harness starts a fresh trace (task agent:run)"
 }
 
+# v4 coordination integration (Maku #393): an integration run's manifest and its hash reach the
+# harness exactly; a run without the manifest annotation gets neither variable.
+test_coordination_manifest_reaches_the_harness = lambda {
+    _m = '{"parentTask":"p4zt6wce","planVersion":1}'
+    _h = "0" * 64
+    _envOf = lambda annotations: any -> any {
+        {e.name: e.value for e in _pod(_render(_xr({role = "triager"}, annotations, {}, {}), {}, _DXR)).containers[0].env}
+    }
+    _env = _envOf({"agents.ogenki.io/coordination-manifest" = _m, "agents.ogenki.io/coordination-manifest-hash" = _h})
+    assert _env.COORDINATION_MANIFEST == _m and _env.COORDINATION_MANIFEST_SHA256 == _h
+    _plain = _envOf({})
+    assert "COORDINATION_MANIFEST" not in _plain and "COORDINATION_MANIFEST_SHA256" not in _plain, "no manifest: neither variable"
+    _hashOnly = _envOf({"agents.ogenki.io/coordination-manifest-hash" = _h})
+    assert "COORDINATION_MANIFEST_SHA256" not in _hashOnly, "a hash with no manifest is never projected"
+}
+
 test_room_bridge_only_with_a_room = lambda {
     assert [c.name for c in _pod(_run({})).initContainers] == ["identity-proxy"]
     _p = _pod(_run({roomRef = "3kq7x2ma"}))
