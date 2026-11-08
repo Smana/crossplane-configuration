@@ -527,6 +527,11 @@ _renderRun = lambda _oxr: any, _ocds: any, _dxr: any, _pods: any -> [any] {
     # The inputs of the harness's PR footer (H-S3), each only when the run has it:
     # provenance hints, never authorisation (ruling TB).
     _footerEnv = ([{name = "ROOM_ID", value = _roomRef}] if _roomRef else []) + ([{name = "TASK_ID", value = _taskLabel}] if _taskLabel else []) + ([{name = "TASK_URL", value = _spec.task.url}] if _spec.task?.url else [])
+
+    # v4 coordination integration (Maku #393): the factory's manifest claim annotations reach the
+    # harness as-is, which re-checks role, bytes and hash before any clone. None: no variable.
+    _manifest = _get(_ann, "agents.ogenki.io/coordination-manifest")
+    _manifestEnv = [{name = "COORDINATION_MANIFEST", value = _manifest}, {name = "COORDINATION_MANIFEST_SHA256", value = _get(_ann, "agents.ogenki.io/coordination-manifest-hash") or ""}] if _manifest else []
     # agent-run's final read on SIGTERM (disruption design §2): the bridge's health port, on loopback.
     _bridgeEnv = [{name = "BRIDGE_URL", value = "http://127.0.0.1:{}".format(_BRIDGE_HEALTH_PORT)}] if _roomRef else []
 
@@ -742,7 +747,7 @@ _renderRun = lambda _oxr: any, _ocds: any, _dxr: any, _pods: any -> [any] {
                             # honours LMNR_TRACE_CONTENT and injects traceparent; lmnr's LiteLLM one does neither.
                             {name = "LMNR_INSTRUMENTS", value = "openai"}
                             {name = "LMNR_TRACE_CONTENT", value = "false"}
-                        ] + ([{name = "TRACEPARENT", value = _tp}] if _tp else []) + _footerEnv + _bridgeEnv + _gitEnv + ([{name = "AGENT_SUSPENDABLE", value = "true"}] if _suspendable else []) + _loopEnv + _checksEnv + _searchEnv
+                        ] + ([{name = "TRACEPARENT", value = _tp}] if _tp else []) + _footerEnv + _manifestEnv + _bridgeEnv + _gitEnv + ([{name = "AGENT_SUSPENDABLE", value = "true"}] if _suspendable else []) + _loopEnv + _checksEnv + _searchEnv
                         # No containerPort: agent-server listens on loopback only.
                         # timeoutSeconds covers python3's start-up under gVisor
                         # plus urlopen's own 2 s; kubelet's 1 s default would
