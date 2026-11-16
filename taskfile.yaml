@@ -22,12 +22,13 @@ tasks:
       - task: check
 
   check:
-    desc: Every gate CI runs — generate-sync, kcl fmt/test, XRD schema, render equivalence
+    desc: Every gate CI runs — generate-sync, kcl fmt/test, XRD schema, render equivalence, rendered-output schema
     cmds:
       - task: generate-sync
       - task: test
       - task: schema
       - task: render
+      - task: validate-render
 
   generate:
     desc: Inline each KCL module into its composition.yaml
@@ -84,6 +85,9 @@ tasks:
 
   schema:
     desc: Validate every example claim against the shipped XRDs
+    # Also builds build/schemas, which validate-render reads; once per run so
+    # `check` calling both does not convert the XRDs twice.
+    run: once
     cmds:
       - ./scripts/validate-schemas.sh
 
@@ -91,6 +95,12 @@ tasks:
     desc: Render every example and diff against tests/golden/
     cmds:
       - python3 scripts/render_check.py
+
+  validate-render:
+    desc: Validate every composed resource in tests/golden/ against its schema
+    deps: [schema]
+    cmds:
+      - python3 scripts/validate_render.py
 
   build:
     desc: Produce every .xpkg file
