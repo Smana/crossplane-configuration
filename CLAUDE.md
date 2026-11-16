@@ -23,6 +23,7 @@ Inlining is the point of this repo: an installed package pulls nothing at render
 | `examples/` | claims, flat — `crossplane xpkg build --examples-root` takes exactly one directory |
 | `packages/{core,aws,gcp}/crossplane.yaml` | package metadata and `dependsOn` |
 | `tests/golden/` | rendered fixtures captured pre-extraction; render equivalence is diffed against these |
+| `tests/crds/` | vendored CRDs for composed kinds no hosted catalog has; bump with the operator pin |
 
 APIs: `App`, `SQLInstance`, `KVStore`, `InferenceService`, `AgentRun` (core), `EPI` + the AWS
 Compositions (aws), and `GCPWorkloadIdentity` (gcp). All in group `cloud.ogenki.io`.
@@ -31,7 +32,7 @@ Compositions (aws), and `GCPWorkloadIdentity` (gcp). All in group `cloud.ogenki.
 
 ```bash
 mise install
-task check     # generate-sync + kcl fmt/test + XRD schema + render equivalence
+task check     # generate-sync + kcl fmt/test + XRD schema + render equivalence + rendered-output schema
 task build     # every .xpkg file
 task render    # render every example, diff against tests/golden/
 ```

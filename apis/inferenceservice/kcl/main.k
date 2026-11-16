@@ -153,8 +153,8 @@ _metadata = lambda suffix: str, ready: bool -> any {
 
 _setResourceRequirements = lambda resources: any -> any {
     {
-        requests = (resources?.requests or {cpu = _DEFAULTS.cpu_request, memory = _DEFAULTS.memory_request}) | {"nvidia.com/gpu" = _gpuCount}
-        limits = (resources?.limits or {cpu = _DEFAULTS.cpu_limit, memory = _DEFAULTS.memory_limit}) | {"nvidia.com/gpu" = _gpuCount}
+        requests = (resources?.requests or {cpu = _DEFAULTS.cpu_request, memory = _DEFAULTS.memory_request}) | {"nvidia.com/gpu" = str(_gpuCount)}
+        limits = (resources?.limits or {cpu = _DEFAULTS.cpu_limit, memory = _DEFAULTS.memory_limit}) | {"nvidia.com/gpu" = str(_gpuCount)}
     }
 }
 

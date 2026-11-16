@@ -450,7 +450,10 @@ spec:
               secretKeyRef = {name = _managedName + "-cnpg-" + oxr.spec.sqlInstance.databases[0].name, key = "uri"}
           }}] if oxr.spec.sqlInstance?.enabled and len(oxr.spec.sqlInstance?.databases or []) > 0 and "DATABASE_URL" not in _userEnvNames else []
           _cacheAutoEnv = [{name = "REDIS_URL", value = "redis://" + _managedName + "-valkey:6379"}] if oxr.spec.kvStore?.enabled and "REDIS_URL" not in _userEnvNames else []
-          _mainCombinedEnv = _mainDefaultEnv + _buildObservabilityEnv(oxr.spec.observability) + _dbAutoEnv + _cacheAutoEnv + (oxr.spec.env or [])
+
+          # A user entry also replaces a default or observability one of the same name:
+          # env is keyed on `name`, so a repeat renders an invalid Deployment.
+          _mainCombinedEnv = [e for e in _mainDefaultEnv + _buildObservabilityEnv(oxr.spec.observability) if e.name not in _userEnvNames] + _dbAutoEnv + _cacheAutoEnv + (oxr.spec.env or [])
 
           # Main application container (SPEC-007 T007). Built in one shot (no mutation).
           _mainContainer = {
