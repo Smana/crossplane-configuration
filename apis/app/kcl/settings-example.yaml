@@ -65,6 +65,10 @@ kcl_options:
           args: ["--config", "/app/config.yaml"]
           imagePullSecrets: ["regcred"]
           terminationGracePeriodSeconds: 45
+          # Named like a Composition default: the claim's entry must win, once.
+          env:
+            - name: POD_NAME
+              value: "pinned-by-claim"
           # Multi-container: one init container + one sidecar (SPEC-007)
           initContainers:
             - name: migrate

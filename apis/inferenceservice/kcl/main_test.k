@@ -63,7 +63,8 @@ test_gpu_resources = lambda {
     _oxr = option("params").oxr
     dep = [r for r in items if r.kind == "Deployment"][0]
     res = dep.spec.template.spec.containers[0].resources
-    _expectedGpu = _oxr.spec.gpu.count
+    # A string, like cpu and memory: the validation catalog types Quantity as one.
+    _expectedGpu = str(_oxr.spec.gpu.count)
     assert res.requests["nvidia.com/gpu"] == _expectedGpu, "GPU request mismatch"
     assert res.limits["nvidia.com/gpu"] == _expectedGpu, "GPU limit mismatch"
 }

@@ -55,6 +55,19 @@ test_backend_env_autowired = lambda {
     assert True
 }
 
+# ---- Test: a user env entry replaces the Composition's default of the same name ----
+# env is keyed on `name`; a repeat renders a Deployment the schema rejects.
+test_user_env_replaces_default = lambda {
+    dep = [r for r in items if r.kind == "Deployment"][0]
+    env = dep.spec.template.spec.containers[0].env
+    _names = [e.name for e in env]
+    _repeated = [n for n in _names if len([m for m in _names if m == n]) > 1]
+    assert len(_repeated) == 0, "env names must be unique, repeated: {}".format(_repeated)
+    _podName = [e for e in env if e.name == "POD_NAME"]
+    assert _podName[0].value == "pinned-by-claim", "the claim's POD_NAME must win"
+    assert any_true([e.name == "POD_NAMESPACE" for e in env]), "unrelated defaults must stay"
+}
+
 # ---- Test: composition owns the xplane-* prefix (dev never types it) ----
 # IAM-bearing resources (SQLInstance -> S3-backup role, EPI -> S3 role) get the
 # managed xplane-* name so they land in the provider-aws IAM boundary; the

@@ -10,7 +10,6 @@ Requires build/schemas from `task schema`, and flux with the schema plugin.
 """
 import os
 import pathlib
-import re
 import shutil
 import subprocess
 import sys
@@ -26,12 +25,6 @@ VENDORED_SCHEMAS = ROOT / "build" / "schemas-vendored"
 RENDERED = ROOT / "build" / "rendered"
 
 FLUX = os.environ.get("FLUX_BIN", "flux")
-
-# The catalog types resource.Quantity as string; the apiserver also accepts an
-# integer, which is what the InferenceService KCL emits for the GPU count.
-# Quoted here rather than skipped: --skip-json-path cannot index into the
-# containers array, and skipping Deployment would hide every other violation.
-GPU_QUANTITY = re.compile(r"^(\s+nvidia\.com/gpu: )(\d+)$", re.MULTILINE)
 
 
 def split_docs(text: str) -> list[str]:
@@ -59,7 +52,7 @@ def strip_xr(golden: pathlib.Path) -> str:
     got = (yaml.safe_load(docs[0]) or {}).get("kind")
     if got != want:
         raise SystemExit(f"{golden.name}: first document is {got!r}, expected the {want} XR")
-    return GPU_QUANTITY.sub(r'\1"\2"', "".join("---\n" + d for d in docs[1:]))
+    return "".join("---\n" + d for d in docs[1:])
 
 
 def main() -> int:
