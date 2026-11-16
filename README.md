@@ -102,7 +102,7 @@ Configuration and the schemas its claims are validated against.
 
 ```bash
 mise install
-task check   # generate-sync + kcl fmt/test + render against golden fixtures
+task check   # generate-sync + kcl fmt/test + XRD schema + render against golden + rendered-output schema
 task build   # produce every .xpkg file
 ```
 

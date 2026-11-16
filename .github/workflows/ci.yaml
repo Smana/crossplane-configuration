@@ -59,6 +59,11 @@ jobs:
       - name: Render equivalence against golden fixtures
         run: task render
 
+      # Fetches the default and ecosystem catalogs over HTTPS; unreachable
+      # catalogs fail the step rather than skip resources.
+      - name: Composed resources validate against their schemas
+        run: task validate-render
+
       - name: Build all packages
         run: task build
 
